@@ -12,7 +12,7 @@ set(BUILD_SHARED_LIBS ON)
 option(BUILD_SANDBOX "Build sandbox" ON)
 
 # TODO: Make it optional?!
-find_package(OpenCV REQUIRED)
+find_package(OpenCV QUIET)
 
 add_subdirectory(core)
 

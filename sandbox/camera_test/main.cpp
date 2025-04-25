@@ -1,14 +1,11 @@
-#include <camera/camera_processor.h>
 #include <opencv2/highgui.hpp>
 
 int main() {
-  CameraProcessor camera;
-  if (!camera.initialize()) {
-    return 1;
-  }
+  cv::VideoCapture camera(0);
 
   while (true) {
-    cv::Mat frame = camera.processFrame(640, 480);
+    cv::Mat frame;
+    camera >> frame;
     if (frame.empty()) {
       break;
     }
@@ -16,7 +13,6 @@ int main() {
     cv::imshow("Frame", frame);
     auto key = cv::waitKey(1);
     if (key == 'q') {
-      camera.stop();
       break;
     }
   }
