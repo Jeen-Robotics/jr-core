@@ -1,0 +1,2 @@
+add_subdirectory(jr_math)
+add_subdirectory(camera)
