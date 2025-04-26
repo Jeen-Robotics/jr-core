@@ -1,5 +1,6 @@
+#include "imgproc/imgproc.h"
+
 #include <algorithm>
-#include <camera/camera_interface.h>
 
 static const int Y_PLANE_BYTES_PER_PIXEL = 1;
 static const int U_PLANE_BYTES_PER_PIXEL = 2;
