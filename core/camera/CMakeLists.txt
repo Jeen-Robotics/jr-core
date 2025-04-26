@@ -16,4 +16,5 @@ target_link_libraries(camera
     log
     mediandk
     camera2ndk
+    imgproc
 ) 

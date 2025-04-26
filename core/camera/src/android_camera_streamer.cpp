@@ -9,6 +9,7 @@
 #include <camera/NdkCameraMetadata.h>
 #include <media/NdkImage.h>
 #include <media/NdkImageReader.h>
+#include "imgproc/imgproc.h"
 
 #define LOG_TAG "AndroidCameraStreamer"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -123,6 +124,23 @@ public:
       return false;
     }
 
+    // Add output target to container
+    ACaptureSessionOutput *session_output = nullptr;
+    if (ACaptureSessionOutput_create(window, &session_output) != ACAMERA_OK) {
+      LOGE("Failed to create session output");
+      ACameraOutputTarget_free(output_target);
+      ACaptureSessionOutputContainer_free(output_container);
+      return false;
+    }
+
+    if (ACaptureSessionOutputContainer_add(output_container, session_output) != ACAMERA_OK) {
+      LOGE("Failed to add session output to container");
+      ACameraOutputTarget_free(output_target);
+      ACaptureSessionOutputContainer_free(output_container);
+      ACaptureSessionOutput_free(session_output);
+      return false;
+    }
+
     // Create capture session
     if (ACameraDevice_createCaptureSession(camera_device_, output_container,
                                            &session_callbacks,
@@ -183,6 +201,12 @@ public:
 
   void stopStreaming() {
     if (capture_session_) {
+      // Try to stop repeating requests first
+      if (ACameraCaptureSession_stopRepeating(capture_session_) != ACAMERA_OK) {
+        LOGI("Failed to stop repeating requests, continuing with cleanup");
+      }
+      
+      // Close the session
       ACameraCaptureSession_close(capture_session_);
       capture_session_ = nullptr;
     }
@@ -212,17 +236,20 @@ private:
 
   static void onCameraDisconnected(void *context, ACameraDevice *device) {
     auto impl = static_cast<Impl *>(context);
-    LOGE("Camera disconnected");
+    LOGE("Camera disconnected unexpectedly");
+    impl->stopStreaming();
   }
 
   static void onCameraError(void *context, ACameraDevice *device, int error) {
     auto impl = static_cast<Impl *>(context);
     LOGE("Camera error: %d", error);
+    impl->stopStreaming();
   }
 
   static void onSessionClosed(void *context, ACameraCaptureSession *session) {
     auto impl = static_cast<Impl *>(context);
     LOGI("Capture session closed");
+    impl->capture_session_ = nullptr;
   }
 
   static void onSessionReady(void *context, ACameraCaptureSession *session) {
@@ -258,7 +285,11 @@ private:
                               ACaptureRequest *request,
                               ACameraCaptureFailure *failure) {
     auto impl = static_cast<Impl *>(context);
-    LOGE("Capture failed with reason: %d", failure->reason);
+    LOGE("Capture failed with reason: %d, frame number: %ld", 
+         failure->reason, failure->frameNumber);
+    if (failure->reason == ACAMERA_ERROR_CAMERA_DEVICE) {
+      impl->stopStreaming();
+    }
   }
 
   static void onCaptureSequenceCompleted(void *context,
@@ -275,7 +306,16 @@ private:
   }
 
   static void onImageAvailable(void *context, AImageReader *reader) {
+    if (!context || !reader) {
+      LOGE("Invalid context or reader in onImageAvailable");
+      return;
+    }
+
     auto impl = static_cast<Impl *>(context);
+    if (!impl) {
+      LOGE("Failed to cast context to Impl");
+      return;
+    }
 
     AImage *image = nullptr;
     media_status_t status = AImageReader_acquireLatestImage(reader, &image);
@@ -288,6 +328,13 @@ private:
     int32_t format;
     if (AImage_getFormat(image, &format) != AMEDIA_OK) {
       LOGE("Failed to get image format");
+      AImage_delete(image);
+      return;
+    }
+
+    // Verify format is YUV420
+    if (format != AIMAGE_FORMAT_YUV_420_888) {
+      LOGE("Unexpected image format: %d, expected YUV_420_888", format);
       AImage_delete(image);
       return;
     }
@@ -309,41 +356,53 @@ private:
       return;
     }
 
-    // Calculate total data size needed
-    size_t total_size = 0;
-    for (int i = 0; i < num_planes; i++) {
-      int32_t plane_length;
-      if (AImage_getPlaneRowStride(image, i, &plane_length) != AMEDIA_OK) {
-        LOGE("Failed to get plane %d row stride", i);
-        AImage_delete(image);
-        return;
-      }
-      total_size += plane_length * height;
+    // YUV_420_888 should have 3 planes (Y, U, V)
+    if (num_planes != 3) {
+      LOGE("Unexpected number of planes: %d, expected 3", num_planes);
+      AImage_delete(image);
+      return;
     }
 
-    // Allocate buffer for all planes
-    std::vector<uint8_t> combined_data(total_size);
-    uint8_t* current_ptr = combined_data.data();
-
-    // Copy data from all planes
-    for (int i = 0; i < num_planes; i++) {
-      uint8_t *plane_data = nullptr;
-      int32_t plane_length = 0;
-      if (AImage_getPlaneData(image, i, &plane_data, &plane_length) != AMEDIA_OK) {
-        LOGE("Failed to get plane %d data", i);
-        AImage_delete(image);
-        return;
-      }
-
-      // Copy plane data
-      memcpy(current_ptr, plane_data, plane_length);
-      current_ptr += plane_length;
+    // Get Y plane data
+    uint8_t *y_data = nullptr;
+    int32_t y_length = 0;
+    if (AImage_getPlaneData(image, 0, &y_data, &y_length) != AMEDIA_OK) {
+      LOGE("Failed to get Y plane data");
+      AImage_delete(image);
+      return;
     }
 
-    // Call the frame callback if set
+    // Get U plane data
+    uint8_t *u_data = nullptr;
+    int32_t u_length = 0;
+    if (AImage_getPlaneData(image, 1, &u_data, &u_length) != AMEDIA_OK) {
+      LOGE("Failed to get U plane data");
+      AImage_delete(image);
+      return;
+    }
+
+    // Get V plane data
+    uint8_t *v_data = nullptr;
+    int32_t v_length = 0;
+    if (AImage_getPlaneData(image, 2, &v_data, &v_length) != AMEDIA_OK) {
+      LOGE("Failed to get V plane data");
+      AImage_delete(image);
+      return;
+    }
+
+    // Convert YUV to RGBA using imgproc library
+    uint8_t *rgba_data = yuv2rgba(y_data, u_data, v_data, width, height);
+    
+    // Calculate the size of the RGBA data
+    size_t rgba_size = width * height * 4;
+
+    // Call the frame callback with RGBA data if set
     if (impl->frame_callback_) {
-      impl->frame_callback_(combined_data.data(), total_size);
+      impl->frame_callback_(rgba_data, rgba_size);
     }
+
+    // Free the allocated RGBA data
+    delete[] rgba_data;
 
     AImage_delete(image);
   }
