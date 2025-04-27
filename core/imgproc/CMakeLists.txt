@@ -1,4 +1,5 @@
 add_library(jr_imgproc
+    src/image.cpp
     src/imgproc.cpp
 )
 

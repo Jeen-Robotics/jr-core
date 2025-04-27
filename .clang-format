@@ -20,20 +20,21 @@ PenaltyBreakAssignment: 2
 PenaltyExcessCharacter: 1000000
 BreakBeforeBraces: Custom
 BraceWrapping:
-  AfterClass: true
-  AfterStruct: true
-  AfterUnion: true
+  AfterClass: false
+  AfterStruct: false
+  AfterUnion: false
   AfterFunction: false
   AfterControlStatement: false
-  AfterEnum: true
-  AfterNamespace: true
-  BeforeCatch: true
-  BeforeElse: true
+  AfterEnum: false
+  AfterNamespace: false
+  BeforeCatch: false
+  BeforeElse: false
   IndentBraces: false
 PackConstructorInitializers: Never
 BreakConstructorInitializers: BeforeColon
 BreakConstructorInitializersBeforeComma: true
 BreakInheritanceList: BeforeColon
+BreakTemplateDeclarations: true
 PointerAlignment: Left
 PenaltyReturnTypeOnItsOwnLine: 1000
 AlwaysBreakBeforeMultilineStrings: false

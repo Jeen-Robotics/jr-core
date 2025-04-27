@@ -1,23 +1,15 @@
-#ifndef CAMERA_INTERFACE_H
-#define CAMERA_INTERFACE_H
+#pragma once
 
 #include <stdbool.h>
-#include <stdint.h>
+
+#include "image.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-uint8_t* yuv2rgba(
-  const uint8_t* y,
-  const uint8_t* u,
-  const uint8_t* v,
-  int width,
-  int height
-);
+bool yuv2rgba(const jr_planar_image_t* yuv, jr_image_t* rgba);
 
 #ifdef __cplusplus
 }
 #endif
-
-#endif // CAMERA_INTERFACE_H

@@ -10,8 +10,12 @@ add_library(jr_api ${SOURCES})
 target_include_directories(jr_api PUBLIC include/)
 
 # Link libraries
+target_link_libraries(jr_api PUBLIC
+    jr_imgproc
+)
+
 if(ANDROID)
-    target_link_libraries(jr_api
+    target_link_libraries(jr_api PRIVATE
         jr_android
     )
 endif()

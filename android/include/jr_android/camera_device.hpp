@@ -3,11 +3,13 @@
 #include <functional>
 #include <memory>
 
-namespace jr::android
-{
+#include <jr_imgproc/image.h>
 
-class CameraDevice
-{
+namespace jr::android {
+
+using FrameCallback = std::function<void(const jr_planar_image_t&)>;
+
+class CameraDevice {
 public:
   CameraDevice();
   ~CameraDevice();
@@ -25,7 +27,7 @@ public:
   void stopStreaming();
 
   // Set callback for receiving image frames
-  void setFrameCallback(std::function<void(const uint8_t *, size_t)> callback);
+  void setFrameCallback(FrameCallback callback);
 
 private:
   class Impl;

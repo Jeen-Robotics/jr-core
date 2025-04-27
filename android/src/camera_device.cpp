@@ -1,6 +1,5 @@
 #include "jr_android/camera_device.hpp"
 
-#include "jr_imgproc/imgproc.h"
 #include <android/log.h>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
@@ -11,7 +10,7 @@
 #include <media/NdkImage.h>
 #include <media/NdkImageReader.h>
 
-#define LOG_TAG "AndroidCameraDevice"
+#define LOG_TAG "JRAndroidCameraDevice"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
@@ -263,7 +262,7 @@ public:
     }
   }
 
-  void setFrameCallback(std::function<void(const uint8_t*, size_t)> callback) {
+  void setFrameCallback(FrameCallback callback) {
     frame_callback_ = callback;
   }
 
@@ -368,100 +367,107 @@ private:
       return;
     }
 
-    auto impl = static_cast<Impl*>(context);
+    auto* impl = static_cast<Impl*>(context);
     if (!impl) {
       LOGE("Failed to cast context to Impl");
       return;
     }
 
     AImage* image = nullptr;
-    media_status_t status = AImageReader_acquireLatestImage(reader, &image);
-    if (status != AMEDIA_OK) {
+    if (AImageReader_acquireLatestImage(reader, &image) != AMEDIA_OK) {
       LOGE("Failed to acquire latest image");
       return;
     }
 
-    // Get image format
     int32_t format;
+    int32_t width, height;
+    int32_t num_planes;
+    jr_planar_image_t planar_image {};
+    bool success = true;
+
+    // Get image format
     if (AImage_getFormat(image, &format) != AMEDIA_OK) {
       LOGE("Failed to get image format");
-      AImage_delete(image);
-      return;
+      success = false;
+      goto IMAGE_READ_ERROR;
     }
 
     // Verify format is YUV420
     if (format != AIMAGE_FORMAT_YUV_420_888) {
       LOGE("Unexpected image format: %d, expected YUV_420_888", format);
-      AImage_delete(image);
-      return;
+      success = false;
+      goto IMAGE_READ_ERROR;
     }
 
     // Get image dimensions
-    int32_t width, height;
     if (AImage_getWidth(image, &width) != AMEDIA_OK ||
         AImage_getHeight(image, &height) != AMEDIA_OK) {
       LOGE("Failed to get image dimensions");
-      AImage_delete(image);
-      return;
+      success = false;
+      goto IMAGE_READ_ERROR;
     }
 
     // Get number of planes
-    int32_t num_planes;
     if (AImage_getNumberOfPlanes(image, &num_planes) != AMEDIA_OK) {
       LOGE("Failed to get number of planes");
-      AImage_delete(image);
-      return;
+      success = false;
+      goto IMAGE_READ_ERROR;
     }
 
     // YUV_420_888 should have 3 planes (Y, U, V)
     if (num_planes != 3) {
       LOGE("Unexpected number of planes: %d, expected 3", num_planes);
-      AImage_delete(image);
-      return;
+      success = false;
+      goto IMAGE_READ_ERROR;
     }
 
-    // Get Y plane data
-    uint8_t* y_data = nullptr;
-    int32_t y_length = 0;
-    if (AImage_getPlaneData(image, 0, &y_data, &y_length) != AMEDIA_OK) {
-      LOGE("Failed to get Y plane data");
-      AImage_delete(image);
-      return;
-    }
+    planar_image = {
+      .width = width,
+      .height = height,
+      .num_planes = num_planes,
+      .planes = new jr_plane_t[num_planes]
+    };
 
-    // Get U plane data
-    uint8_t* u_data = nullptr;
-    int32_t u_length = 0;
-    if (AImage_getPlaneData(image, 1, &u_data, &u_length) != AMEDIA_OK) {
-      LOGE("Failed to get U plane data");
-      AImage_delete(image);
-      return;
-    }
+    for (int i = 0; i < num_planes; i++) {
+      int32_t row_stride;
+      if (AImage_getPlaneRowStride(image, i, &row_stride) != AMEDIA_OK) {
+        LOGE("Failed to get plane row stride");
+        success = false;
+        goto IMAGE_READ_ERROR;
+      }
 
-    // Get V plane data
-    uint8_t* v_data = nullptr;
-    int32_t v_length = 0;
-    if (AImage_getPlaneData(image, 2, &v_data, &v_length) != AMEDIA_OK) {
-      LOGE("Failed to get V plane data");
-      AImage_delete(image);
-      return;
-    }
+      int32_t pixel_stride;
+      if (AImage_getPlanePixelStride(image, i, &pixel_stride) != AMEDIA_OK) {
+        LOGE("Failed to get plane pixel stride");
+        success = false;
+        goto IMAGE_READ_ERROR;
+      }
+      
+      uint8_t* data;
+      int32_t length;
+      if (AImage_getPlaneData(image, i, &data, &length) != AMEDIA_OK) {
+        LOGE("Failed to get plane data");
+        success = false;
+        goto IMAGE_READ_ERROR;
+      }
 
-    // TODO: Convert outside
-    // Convert YUV to RGBA using imgproc library
-    uint8_t* rgba_data = yuv2rgba(y_data, u_data, v_data, width, height);
+      planar_image.planes[i].data = data;
+      planar_image.planes[i].row_stride = row_stride;
+      planar_image.planes[i].pixel_stride = pixel_stride;
+    }
 
     // Calculate the size of the RGBA data
-    size_t rgba_size = width * height * 4;
-
-    // Call the frame callback with RGBA data if set
-    if (impl->frame_callback_) {
-      impl->frame_callback_(rgba_data, rgba_size);
+    if (success && impl->frame_callback_) {
+      impl->frame_callback_(planar_image);
     }
 
-    // Free the allocated RGBA data
-    delete[] rgba_data;
+  IMAGE_READ_ERROR:
+    // Free the allocated planar image
+    if (planar_image.planes) {
+      delete[] planar_image.planes;
+    }
 
+    // Always delete the image before returning
     AImage_delete(image);
   }
 
@@ -469,12 +475,13 @@ private:
   ACameraDevice* camera_device_;
   ACameraCaptureSession* capture_session_;
   AImageReader* image_reader_;
-  std::function<void(const uint8_t*, size_t)> frame_callback_;
+  FrameCallback frame_callback_;
 };
 
 CameraDevice::CameraDevice()
     : impl_(std::make_unique<Impl>()) {
 }
+
 CameraDevice::~CameraDevice() = default;
 
 int CameraDevice::getNumberOfCameras() const {
@@ -493,9 +500,7 @@ void CameraDevice::stopStreaming() {
   impl_->stopStreaming();
 }
 
-void CameraDevice::setFrameCallback(
-  std::function<void(const uint8_t*, size_t)> callback
-) {
+void CameraDevice::setFrameCallback(FrameCallback callback) {
   impl_->setFrameCallback(callback);
 }
 
