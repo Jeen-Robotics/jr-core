@@ -1,6 +1,6 @@
-#include "camera/camera_device.h"
+#include "jr_android/camera_device.hpp"
 
-#include "imgproc/imgproc.h"
+#include "jr_imgproc/imgproc.h"
 #include <android/log.h>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>

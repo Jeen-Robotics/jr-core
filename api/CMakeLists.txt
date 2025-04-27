@@ -4,14 +4,14 @@ set(SOURCES
 )
 
 # Create library
-add_library(camera ${SOURCES})
+add_library(jr_api ${SOURCES})
 
 # Add include directories
-target_include_directories(camera PUBLIC include/)
+target_include_directories(jr_api PUBLIC include/)
 
 # Link libraries
 if(ANDROID)
-    target_link_libraries(camera
-        android_camera
+    target_link_libraries(jr_api
+        jr_android
     )
 endif()

@@ -1,10 +1,10 @@
-#include "camera/camera_device_api.h"
+#include "jr_api/camera_device_api.h"
 
 #include <functional>
 #include <memory>
 
 #if defined(ANDROID)
-#include "camera/camera_device.h"
+#include "jr_android/camera_device.hpp"
 #else
 class DummyCameraDevice {
   public:

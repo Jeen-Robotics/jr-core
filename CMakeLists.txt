@@ -6,14 +6,9 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# NOTE: Actually should be set as an external variable
-set(BUILD_SHARED_LIBS ON)
-
 option(BUILD_SANDBOX "Build sandbox" ON)
 
-# TODO: Make it optional?!
-find_package(OpenCV QUIET)
-
+add_subdirectory(api)
 add_subdirectory(core)
 
 if(ANDROID)
@@ -21,5 +16,7 @@ if(ANDROID)
 endif()
 
 if(BUILD_SANDBOX)
+    find_package(OpenCV QUIET)
+
     add_subdirectory(sandbox)
 endif()

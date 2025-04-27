@@ -1,12 +1,18 @@
-#include "imgproc/imgproc.h"
+#include "jr_imgproc/imgproc.h"
 
 #include <algorithm>
 
 static const int Y_PLANE_BYTES_PER_PIXEL = 1;
 static const int U_PLANE_BYTES_PER_PIXEL = 2;
 
-uint8_t *yuv2rgba(const uint8_t *y, const uint8_t *u, const uint8_t *v, int width, int height) {
-  uint8_t *rgba = new uint8_t[width * height * 4];
+uint8_t* yuv2rgba(
+  const uint8_t* y,
+  const uint8_t* u,
+  const uint8_t* v,
+  int width,
+  int height
+) {
+  uint8_t* rgba = new uint8_t[width * height * 4];
 
   for (int i = 0; i < height; i++) {
     for (int j = 0; j < width; j++) {
