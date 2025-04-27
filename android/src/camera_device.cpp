@@ -1,4 +1,5 @@
 #include "jr_android/camera_device.hpp"
+#include "jr_imgproc/image.h"
 
 #include <android/log.h>
 #include <android/native_window.h>
@@ -14,11 +15,9 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-namespace jr::android
-{
+namespace jr::android {
 
-class CameraDevice::Impl
-{
+class CameraDevice::Impl {
 public:
   Impl()
       : camera_manager_(nullptr)
@@ -125,6 +124,18 @@ public:
     return true;
   }
 
+  void close() {
+    if (image_reader_) {
+      AImageReader_delete(image_reader_);
+      image_reader_ = nullptr;
+    }
+
+    if (camera_device_) {
+      ACameraDevice_close(camera_device_);
+      camera_device_ = nullptr;
+    }
+  }
+
   bool startStreaming() {
     if (!camera_device_ || !image_reader_) {
       LOGE("Camera or image reader not initialized");
@@ -214,6 +225,7 @@ public:
         ) != ACAMERA_OK) {
       LOGE("Failed to create capture request");
       ACameraOutputTarget_free(output_target);
+      ACaptureSessionOutput_free(session_output);
       ACaptureSessionOutputContainer_free(output_container);
       return false;
     }
@@ -223,6 +235,7 @@ public:
       LOGE("Failed to add target to request");
       ACameraOutputTarget_free(output_target);
       ACaptureRequest_free(request);
+      ACaptureSessionOutput_free(session_output);
       ACaptureSessionOutputContainer_free(output_container);
       return false;
     }
@@ -238,12 +251,14 @@ public:
       LOGE("Failed to start repeating request");
       ACameraOutputTarget_free(output_target);
       ACaptureRequest_free(request);
+      ACaptureSessionOutput_free(session_output);
       ACaptureSessionOutputContainer_free(output_container);
       return false;
     }
 
     ACameraOutputTarget_free(output_target);
     ACaptureRequest_free(request);
+    ACaptureSessionOutput_free(session_output);
     ACaptureSessionOutputContainer_free(output_container);
 
     return true;
@@ -255,15 +270,15 @@ public:
       if (ACameraCaptureSession_stopRepeating(capture_session_) != ACAMERA_OK) {
         LOGI("Failed to stop repeating requests, continuing with cleanup");
       }
-
-      // Close the session
-      ACameraCaptureSession_close(capture_session_);
-      capture_session_ = nullptr;
     }
   }
 
   void setFrameCallback(FrameCallback callback) {
     frame_callback_ = callback;
+  }
+
+  void setSessionReadyCallback(VoidCallback callback) {
+    session_ready_callback_ = callback;
   }
 
 private:
@@ -291,6 +306,9 @@ private:
   static void onSessionReady(void* context, ACameraCaptureSession* session) {
     auto impl = static_cast<Impl*>(context);
     LOGI("Capture session ready");
+    if (impl->session_ready_callback_) {
+      impl->session_ready_callback_();
+    }
   }
 
   static void onSessionActive(void* context, ACameraCaptureSession* session) {
@@ -305,7 +323,7 @@ private:
     int64_t timestamp
   ) {
     auto impl = static_cast<Impl*>(context);
-    LOGI("Capture started at %ld", timestamp);
+    // LOGI("Capture started at %ld", timestamp);
   }
 
   static void onCaptureProgressed(
@@ -382,7 +400,7 @@ private:
     int32_t format;
     int32_t width, height;
     int32_t num_planes;
-    jr_planar_image_t planar_image {};
+    jr_planar_image_t planar_image{};
     bool success = true;
 
     // Get image format
@@ -442,7 +460,7 @@ private:
         success = false;
         goto IMAGE_READ_ERROR;
       }
-      
+
       uint8_t* data;
       int32_t length;
       if (AImage_getPlaneData(image, i, &data, &length) != AMEDIA_OK) {
@@ -476,6 +494,7 @@ private:
   ACameraCaptureSession* capture_session_;
   AImageReader* image_reader_;
   FrameCallback frame_callback_;
+  VoidCallback session_ready_callback_;
 };
 
 CameraDevice::CameraDevice()
@@ -492,6 +511,10 @@ bool CameraDevice::open(int width, int height, int camera_idx) {
   return impl_->open(width, height, camera_idx);
 }
 
+void CameraDevice::close() {
+  impl_->close();
+}
+
 bool CameraDevice::startStreaming() {
   return impl_->startStreaming();
 }
@@ -502,6 +525,10 @@ void CameraDevice::stopStreaming() {
 
 void CameraDevice::setFrameCallback(FrameCallback callback) {
   impl_->setFrameCallback(callback);
+}
+
+void CameraDevice::setSessionReadyCallback(VoidCallback callback) {
+  impl_->setSessionReadyCallback(callback);
 }
 
 } // namespace jr::android

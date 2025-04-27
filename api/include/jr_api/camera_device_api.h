@@ -30,6 +30,9 @@ bool jr_camera_device_open(
   int32_t camera_idx
 );
 
+// Close the camera
+void jr_camera_device_close(jr_camera_device_t* device);
+
 // Start streaming images
 bool jr_camera_device_start_streaming(jr_camera_device_t* device);
 
@@ -38,7 +41,7 @@ void jr_camera_device_stop_streaming(jr_camera_device_t* device);
 
 // Callback type for receiving image frames
 typedef void (*jr_camera_device_frame_callback_t)(
-  const jr_image_t* image,
+  jr_image_t image,
   void* user_data
 );
 
@@ -47,6 +50,15 @@ void jr_camera_device_set_frame_callback(
   jr_camera_device_t* device,
   jr_camera_device_frame_callback_t callback,
   void* user_data
+);
+
+// Void callback
+typedef void (*jr_camera_device_void_callback_t)();
+
+// Set callback on session ready
+void jr_camera_device_set_session_ready_callback(
+  jr_camera_device_t* device,
+  jr_camera_device_void_callback_t callback
 );
 
 #ifdef __cplusplus

@@ -23,7 +23,10 @@ public:
   }
   void stopStreaming() {
   }
-  void setFrameCallback(std::function<void(const Image*)> callback) {
+  void setFrameCallback(std::function<void(const jr_planar_image_t*)> callback
+  ) {
+  }
+  void setSessionReadyCallback(std::function<void()> callback) {
   }
 };
 #endif
@@ -72,6 +75,12 @@ bool jr_camera_device_open(
   return device->impl->open(width, height, camera_idx);
 }
 
+void jr_camera_device_close(jr_camera_device_t* device) {
+  if (device && device->impl) {
+    device->impl->close();
+  }
+}
+
 bool jr_camera_device_start_streaming(jr_camera_device_t* device) {
   if (!device || !device->impl) {
     return false;
@@ -98,9 +107,25 @@ void jr_camera_device_set_frame_callback(
                                   user_data](const jr_planar_image_t& image) {
     if (callback) {
       jr_image_t rgba_image;
-      yuv2rgba(&image, &rgba_image);
-      callback(&rgba_image, user_data);
-      jr_image_destroy(&rgba_image);
+      if (yuv2rgba(&image, &rgba_image)) {
+        callback(rgba_image, user_data);
+        jr_image_destroy(&rgba_image);
+      }
+    }
+  });
+}
+
+void jr_camera_device_set_session_ready_callback(
+  jr_camera_device_t* device,
+  jr_camera_device_void_callback_t callback
+) {
+  if (!device || !device->impl) {
+    return;
+  }
+
+  device->impl->setSessionReadyCallback([callback]() {
+    if (callback) {
+      callback();
     }
   });
 }
