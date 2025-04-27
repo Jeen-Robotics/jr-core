@@ -8,8 +8,7 @@
 extern "C" {
 #endif
 
-uint8_t *yuv2rgba(const uint8_t *y, const uint8_t *u, const uint8_t *v,
-                  int width, int height);
+uint8_t *yuv2rgba(const uint8_t *y, const uint8_t *u, const uint8_t *v, int width, int height);
 
 #ifdef __cplusplus
 }

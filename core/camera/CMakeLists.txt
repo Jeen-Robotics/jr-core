@@ -1,7 +1,6 @@
 # Add source files
 set(SOURCES
-    src/android_camera_streamer.cpp
-    src/android_camera_streamer_api.cpp
+    src/camera_device_api.cpp
 )
 
 # Create library
@@ -11,10 +10,8 @@ add_library(camera ${SOURCES})
 target_include_directories(camera PUBLIC include/)
 
 # Link libraries
-target_link_libraries(camera
-    android
-    log
-    mediandk
-    camera2ndk
-    imgproc
-) 
+if(ANDROID)
+    target_link_libraries(camera
+        android_camera
+    )
+endif()

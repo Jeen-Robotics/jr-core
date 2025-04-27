@@ -3,15 +3,20 @@
 #include <functional>
 #include <memory>
 
-namespace jr {
+namespace jr::android
+{
 
-class AndroidCameraStreamer {
+class CameraDevice
+{
 public:
-  AndroidCameraStreamer();
-  ~AndroidCameraStreamer();
+  CameraDevice();
+  ~CameraDevice();
+
+  // Get the number of cameras available
+  int getNumberOfCameras() const;
 
   // Initialize the camera with the given parameters
-  bool initialize(int32_t width, int32_t height, int32_t format = 1);
+  bool open(int width, int height, int camera_idx);
 
   // Start streaming images
   bool startStreaming();
@@ -27,4 +32,4 @@ private:
   std::unique_ptr<Impl> impl_;
 };
 
-} // namespace jr
+} // namespace jr::android

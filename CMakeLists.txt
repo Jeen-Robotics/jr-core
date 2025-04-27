@@ -16,6 +16,10 @@ find_package(OpenCV QUIET)
 
 add_subdirectory(core)
 
-if (BUILD_SANDBOX)
+if(ANDROID)
+    add_subdirectory(android)
+endif()
+
+if(BUILD_SANDBOX)
     add_subdirectory(sandbox)
 endif()

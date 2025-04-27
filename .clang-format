@@ -1,0 +1,41 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM
+IndentWidth: 2
+TabWidth: 2
+UseTab: Never
+ColumnLimit: 80
+ContinuationIndentWidth: 2
+AlignAfterOpenBracket: BlockIndent
+AlwaysBreakAfterDefinitionReturnType: None
+AlwaysBreakAfterReturnType: None
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+BinPackArguments: false
+BinPackParameters: false
+AllowShortFunctionsOnASingleLine: None
+ExperimentalAutoDetectBinPacking: false
+PenaltyBreakBeforeFirstCallParameter: 1
+PenaltyBreakAssignment: 2
+PenaltyExcessCharacter: 1000000
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass: true
+  AfterStruct: true
+  AfterUnion: true
+  AfterFunction: false
+  AfterControlStatement: false
+  AfterEnum: true
+  AfterNamespace: true
+  BeforeCatch: true
+  BeforeElse: true
+  IndentBraces: false
+PackConstructorInitializers: Never
+BreakConstructorInitializers: BeforeColon
+BreakConstructorInitializersBeforeComma: true
+BreakInheritanceList: BeforeColon
+PointerAlignment: Left
+PenaltyReturnTypeOnItsOwnLine: 1000
+AlwaysBreakBeforeMultilineStrings: false
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
