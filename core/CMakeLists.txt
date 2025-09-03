@@ -1,2 +1,3 @@
 add_subdirectory(math)
 add_subdirectory(imgproc)
+add_subdirectory(middleware)
