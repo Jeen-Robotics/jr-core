@@ -18,12 +18,14 @@ public:
   bool open(int width, int height, int camera_idx) {
     return false;
   }
+  void close() {
+  }
   bool startStreaming() {
     return false;
   }
   void stopStreaming() {
   }
-  void setFrameCallback(std::function<void(const jr_planar_image_t*)> callback
+  void setFrameCallback(std::function<void(const jr_planar_image_t&)> callback
   ) {
   }
   void setSessionReadyCallback(std::function<void()> callback) {
