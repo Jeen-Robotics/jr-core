@@ -131,4 +131,110 @@ TEST(Middleware, KeepLatest_DropsOldQueueEntries) {
   EXPECT_EQ(last.load(), 19);
 }
 
+TEST(Node, PublisherSubscription_BasicDelivery) {
+  init();
+  auto node = Node("test");
+  auto pub = node.create_publisher<int>("/n/int");
+  std::optional<int> received;
+  auto sub = node.create_subscription<int>("/n/int", [&](const int& v) {
+    received = v;
+  });
+
+  pub.publish(41);
+  pub.publish(42);
+
+  for (int i = 0; i < 50 && !received.has_value(); ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  ASSERT_TRUE(received.has_value());
+  EXPECT_EQ(*received, 42);
+  shutdown();
+}
+
+TEST(Node, Publisher_Validity) {
+  init();
+  auto node = Node("test");
+  auto pub = node.create_publisher<std::string>("/n/str");
+  EXPECT_TRUE(pub.valid());
+  shutdown();
+}
+
+TEST(Runtime, SpinWaitsUntilShutdown) {
+  init();
+  auto node = std::make_shared<Node>("spin_test");
+  std::thread t([&]() { spin(node); });
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  shutdown();
+  t.join();
+}
+
+TEST(Runtime, MultiNodeSpin_CrossNodeCommunication) {
+  init();
+  auto node_pub = std::make_shared<Node>("pub_node");
+  auto node_sub = std::make_shared<Node>("sub_node");
+
+  auto pub = node_pub->create_publisher<int>("/x");
+  std::atomic<int> got{0};
+  auto sub = node_sub->create_subscription<int>("/x", [&](const int& v) { got = v; });
+
+  std::thread t([&]() { spin(std::vector<std::shared_ptr<Node>>{node_pub, node_sub}); });
+  std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  pub.publish(123);
+
+  for (int i = 0; i < 100 && got.load() != 123; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  EXPECT_EQ(got.load(), 123);
+  shutdown();
+  t.join();
+}
+
+namespace {
+class PublisherNode : public Node {
+public:
+  explicit PublisherNode(std::string name)
+      : Node(std::move(name))
+      , pub_(create_publisher<int>("/ros_like")) {
+  }
+
+  void send(int value) { pub_.publish(value); }
+
+private:
+  Publisher<int> pub_;
+};
+
+class SubscriberNode : public Node {
+public:
+  explicit SubscriberNode(std::string name)
+      : Node(std::move(name))
+      , sub_(create_subscription<int>("/ros_like", [&](const int& v) {
+          last_.store(v);
+        })) {
+  }
+
+  int last() const { return last_.load(); }
+
+private:
+  std::atomic<int> last_{-1};
+  Subscription sub_;
+};
+} // namespace
+
+TEST(Runtime, DerivedNodeClasses_PubSub) {
+  init();
+  auto pub = std::make_shared<PublisherNode>("pub");
+  auto sub = std::make_shared<SubscriberNode>("sub");
+
+  std::thread t([&]() { spin(std::vector<std::shared_ptr<Node>>{pub, sub}); });
+  std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  pub->send(777);
+
+  for (int i = 0; i < 100 && sub->last() != 777; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  EXPECT_EQ(sub->last(), 777);
+  shutdown();
+  t.join();
+}
+
 } // namespace jr::mw

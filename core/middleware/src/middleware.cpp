@@ -99,7 +99,7 @@ public:
     }
   }
 
-  void shutdown() {
+  void shutdown() override {
     std::unique_lock<std::mutex> lock(mutex_);
     if (is_shutdown_)
       return;
@@ -165,6 +165,22 @@ private:
 
 } // namespace
 
+namespace {
+struct RuntimeState {
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool running{false};
+  std::shared_ptr<Middleware> mw;
+  BackendKind backend{BackendKind::InProcess};
+  std::vector<std::shared_ptr<Node>> nodes;
+};
+
+RuntimeState& runtime() {
+  static RuntimeState s;
+  return s;
+}
+} // namespace
+
 std::shared_ptr<Middleware> Middleware::create(BackendKind backend) {
   switch (backend) {
   case BackendKind::InProcess:
@@ -175,8 +191,54 @@ std::shared_ptr<Middleware> Middleware::create(BackendKind backend) {
 }
 
 std::shared_ptr<Middleware> get(BackendKind backend) {
-  static std::shared_ptr<Middleware> instance = Middleware::create(backend);
-  return instance;
+  auto& rt = runtime();
+  std::lock_guard<std::mutex> lock(rt.mutex);
+  if (!rt.mw) {
+    rt.mw = Middleware::create(backend);
+    rt.backend = backend;
+  }
+  return rt.mw;
+}
+
+void init(BackendKind backend) {
+  auto& rt = runtime();
+  std::unique_lock<std::mutex> lock(rt.mutex);
+  if (rt.mw) {
+    // Fresh re-init: stop previous middleware first
+    rt.mw->shutdown();
+    rt.mw.reset();
+  }
+  rt.mw = Middleware::create(backend);
+  rt.backend = backend;
+  rt.running = true;
+}
+
+void spin(std::shared_ptr<Node> node) {
+  auto& rt = runtime();
+  std::unique_lock<std::mutex> lock(rt.mutex);
+  rt.nodes.clear();
+  if (node) rt.nodes.push_back(std::move(node));
+  rt.cv.wait(lock, [&]() { return !rt.running; });
+}
+
+void spin(const std::vector<std::shared_ptr<Node>>& nodes) {
+  auto& rt = runtime();
+  std::unique_lock<std::mutex> lock(rt.mutex);
+  rt.nodes = nodes; // keep them alive while spinning
+  rt.cv.wait(lock, [&]() { return !rt.running; });
+}
+
+void shutdown() {
+  auto& rt = runtime();
+  std::unique_lock<std::mutex> lock(rt.mutex);
+  if (rt.mw) {
+    rt.mw->shutdown();
+    rt.mw.reset();
+  }
+  rt.running = false;
+  rt.nodes.clear();
+  lock.unlock();
+  rt.cv.notify_all();
 }
 
 } // namespace jr::mw
