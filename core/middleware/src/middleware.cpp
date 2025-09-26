@@ -106,7 +106,11 @@ void init(BackendKind backend) {
 }
 
 void spin(std::shared_ptr<Node> node) {
-  spin(std::vector{std::move(node)});
+  auto& rt = runtime();
+  while (rt.running.load()) {
+    node->spin_once();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
 }
 
 void spin(const std::vector<std::shared_ptr<Node>>& nodes) {
