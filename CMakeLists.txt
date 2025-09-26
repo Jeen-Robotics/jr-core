@@ -17,12 +17,12 @@ endif()
 add_subdirectory(api)
 add_subdirectory(core)
 
-if(ANDROID)
-    add_subdirectory(android)
-endif()
-
 if(BUILD_SANDBOX)
-    find_package(OpenCV QUIET)
+    find_package(OpenCV REQUIRED)
 
     add_subdirectory(sandbox)
+endif()
+
+if(ANDROID)
+    add_subdirectory(android)
 endif()

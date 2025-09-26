@@ -4,62 +4,25 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <typeindex>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
+#include <google/protobuf/message.h>
+
+#include <middleware/subscription.hpp>
+
 namespace jr::mw {
+
+class Node;
 
 enum class BackendKind : int {
   InProcess = 0,
 };
 
-class Middleware;
-template <typename MessageT>
-class Publisher;
-class Node;
-
-class Subscription {
-public:
-  Subscription() = default;
-  Subscription(const Subscription&) = delete;
-  Subscription& operator=(const Subscription&) = delete;
-
-  Subscription(Subscription&& other) noexcept
-      : owner_(std::move(other.owner_))
-      , id_(other.id_) {
-    other.id_ = 0;
-  }
-
-  Subscription& operator=(Subscription&& other) noexcept {
-    if (this != &other) {
-      unsubscribe();
-      owner_ = std::move(other.owner_);
-      id_ = other.id_;
-      other.id_ = 0;
-    }
-    return *this;
-  }
-
-  ~Subscription() {
-    unsubscribe();
-  }
-
-  void unsubscribe();
-
-  bool valid() const noexcept {
-    return id_ != 0;
-  }
-
-private:
-  friend class Middleware;
-  Subscription(std::weak_ptr<Middleware> owner, std::uint64_t id)
-      : owner_(std::move(owner))
-      , id_(id) {
-  }
-
-  std::weak_ptr<Middleware> owner_;
-  std::uint64_t id_{0};
+struct TopicInfo {
+  std::string name;
+  std::string type_full_name; // empty if unknown yet
 };
 
 class Middleware : public std::enable_shared_from_this<Middleware> {
@@ -69,27 +32,73 @@ public:
   // Stop the middleware background processing and release resources
   virtual void shutdown() = 0;
 
-  template <typename MessageT>
-  void publish(const std::string& topic, const MessageT& message) {
-    auto payload = std::make_shared<MessageT>(message);
-    do_publish(topic, std::type_index(typeid(MessageT)), std::move(payload));
+  // Publish a protobuf message
+  void publish(
+    const std::string& topic,
+    const google::protobuf::Message& message
+  );
+
+  // Publish an already-serialized protobuf payload with explicit type name
+  void publish_serialized(
+    const std::string& topic,
+    const std::string& type_full_name,
+    const std::string& payload
+  );
+
+  // Typed convenience publisher
+  template <typename ProtoT>
+  void publish(const std::string& topic, const ProtoT& message) {
+    static_assert(
+      std::is_base_of<google::protobuf::Message, ProtoT>::value,
+      "ProtoT must derive from google::protobuf::Message"
+    );
+    publish(topic, static_cast<const google::protobuf::Message&>(message));
   }
 
-  template <typename MessageT>
+  // Subscribe with a concrete protobuf type
+  template <typename ProtoT>
   Subscription subscribe(
     const std::string& topic,
-    std::function<void(const MessageT&)> callback
+    std::function<void(const ProtoT&)> callback
   ) {
-    auto adapter = [cb = std::move(callback)](std::shared_ptr<void> any_ptr) {
-      const MessageT& ref = *std::static_pointer_cast<MessageT>(any_ptr);
-      cb(ref);
-    };
-    return do_subscribe(
+    static_assert(
+      std::is_base_of<google::protobuf::Message, ProtoT>::value,
+      "ProtoT must derive from google::protobuf::Message"
+    );
+    const auto* desc = ProtoT::descriptor();
+    std::string type_full_name;
+    if (desc) {
+      auto sv = desc->full_name();
+      type_full_name.assign(sv.data(), sv.size());
+    }
+    return do_subscribe_typed(
       topic,
-      std::type_index(typeid(MessageT)),
-      std::move(adapter)
+      type_full_name,
+      [cb = std::move(callback)](const google::protobuf::Message& any_msg) {
+        const auto* typed = dynamic_cast<const ProtoT*>(&any_msg);
+        if (typed)
+          cb(*typed);
+      }
     );
   }
+
+  // Subscribe dynamically by type name (e.g. "jr.test.Int32")
+  Subscription subscribe(
+    const std::string& topic,
+    const std::string& type_full_name,
+    std::function<void(const google::protobuf::Message&)> callback
+  );
+
+  // Subscribe to all messages on a topic regardless of type
+  Subscription subscribe_any(
+    const std::string& topic,
+    std::function<
+      void(const std::string& /*type_full_name*/, const google::protobuf::Message&)>
+      callback
+  );
+
+  // Introspection similar to ROS: get topic names and types
+  virtual std::vector<TopicInfo> get_topic_names_and_types() const = 0;
 
   static std::shared_ptr<Middleware> create(
     BackendKind backend = BackendKind::InProcess
@@ -102,92 +111,31 @@ protected:
     return Subscription{weak_from_this(), id};
   }
 
-  virtual Subscription do_subscribe(
+  // Typed subscribe implementation entry (type string + base Message callback)
+  virtual Subscription do_subscribe_typed(
     const std::string& topic,
-    std::type_index type,
-    std::function<void(std::shared_ptr<void>)> callback
+    const std::string& type_full_name,
+    std::function<void(const google::protobuf::Message&)> callback
   ) = 0;
 
-  virtual void do_publish(
+  // Dynamic subscribe-any entry
+  virtual Subscription do_subscribe_any(
     const std::string& topic,
-    std::type_index type,
-    std::shared_ptr<void> payload
+    std::function<void(const std::string&, const google::protobuf::Message&)>
+      callback
+  ) = 0;
+
+  // Publish serialized payload
+  virtual void do_publish_serialized(
+    const std::string& topic,
+    const std::string& type_full_name,
+    std::string payload
   ) = 0;
 
   virtual void do_unsubscribe(std::uint64_t id) = 0;
 };
 
-inline void Subscription::unsubscribe() {
-  if (id_ == 0)
-    return;
-  if (auto owner = owner_.lock()) {
-    owner->do_unsubscribe(id_);
-  }
-  id_ = 0;
-}
-
 std::shared_ptr<Middleware> get(BackendKind backend = BackendKind::InProcess);
-
-template <typename MessageT>
-class Publisher {
-public:
-  Publisher(std::string topic, std::weak_ptr<Middleware> owner)
-      : topic_(std::move(topic))
-      , owner_(std::move(owner)) {
-  }
-
-  void publish(const MessageT& message) const {
-    if (auto owner = owner_.lock()) {
-      owner->template publish<MessageT>(topic_, message);
-    }
-  }
-
-  bool valid() const noexcept {
-    return !topic_.empty() && !owner_.expired();
-  }
-
-private:
-  std::string topic_;
-  std::weak_ptr<Middleware> owner_;
-};
-
-class Node {
-public:
-  virtual ~Node() = default;
-  explicit Node(std::string node_name, std::shared_ptr<Middleware> mw)
-      : node_name_(std::move(node_name))
-      , mw_(std::move(mw)) {
-  }
-
-  explicit Node(std::string node_name)
-      : Node(std::move(node_name), get()) {
-  }
-
-  const std::string& name() const noexcept {
-    return node_name_;
-  }
-
-  template <typename MessageT>
-  Publisher<MessageT> create_publisher(const std::string& topic) {
-    return Publisher<MessageT>{topic, mw_};
-  }
-
-  template <typename MessageT>
-  Subscription create_subscription(
-    const std::string& topic,
-    std::function<void(const MessageT&)> callback
-  ) {
-    return mw_->subscribe<MessageT>(topic, std::move(callback));
-  }
-
-  bool valid() const noexcept {
-    return static_cast<bool>(mw_);
-  }
-
-private:
-  std::string node_name_{};
-  std::shared_ptr<Middleware> mw_{};
-};
 
 void init(BackendKind backend = BackendKind::InProcess);
 void spin(std::shared_ptr<Node> node);

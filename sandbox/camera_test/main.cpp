@@ -1,8 +1,10 @@
-#include <atomic>
 #include <middleware/middleware.hpp>
-#include <mutex>
+#include <middleware/node.hpp>
+
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
+
+#include <mutex>
 #include <thread>
 
 class CameraPublisherNode : public jr::mw::Node {
@@ -10,48 +12,36 @@ public:
   explicit CameraPublisherNode(cv::Mat& frame, std::mutex& frame_mutex)
       : jr::mw::Node("camera_publisher")
       , pub_(create_publisher<cv::Mat>("/camera/frame"))
-      , running_(true)
       , frame_(frame)
       , frame_mutex_(frame_mutex)
-      , worker_([this]() { run_loop(); }) {
+      , camera_(0) {
   }
 
-  ~CameraPublisherNode() override {
-    running_.store(false);
-    if (worker_.joinable()) {
-      worker_.join();
+  void spin_once() override {
+    if (!camera_.isOpened())
+      return;
+
+    cv::Mat local;
+    camera_ >> local;
+    if (local.empty()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      return;
     }
+
+    {
+      std::lock_guard<std::mutex> lock(frame_mutex_);
+      frame_ = local;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    pub_.publish(local);
   }
 
 private:
-  void run_loop() {
-    cv::VideoCapture camera(0);
-    if (!camera.isOpened()) {
-      return;
-    }
-    for (;;) {
-      if (!running_.load())
-        break;
-      cv::Mat local;
-      camera >> local;
-      if (local.empty()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        continue;
-      }
-      {
-        std::lock_guard<std::mutex> lock(frame_mutex_);
-        frame_ = local;
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      pub_.publish(local);
-    }
-  }
+  cv::VideoCapture camera_;
 
   jr::mw::Publisher<cv::Mat> pub_;
-  std::atomic<bool> running_;
   cv::Mat& frame_;
   std::mutex& frame_mutex_;
-  std::thread worker_;
 };
 
 class GraySubscriberNode : public jr::mw::Node {
@@ -93,6 +83,11 @@ int main() {
   auto pub_node = std::make_shared<CameraPublisherNode>(frame, frame_mutex);
   auto sub_node = std::make_shared<GraySubscriberNode>(gray, gray_mutex);
 
+  // TODO:
+  // - add spin_async?
+  // - publish custom proto message with image
+  // - add bag support
+  // - write sample bag
   std::thread spin_thread([&]() {
     jr::mw::spin(std::vector<std::shared_ptr<jr::mw::Node>>{pub_node, sub_node}
     );
