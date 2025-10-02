@@ -1,3 +1,4 @@
 add_subdirectory(math)
 add_subdirectory(imgproc)
 add_subdirectory(middleware)
+add_subdirectory(bag)

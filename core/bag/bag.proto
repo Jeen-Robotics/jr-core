@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package jr.mw;
+
+// Header written at the beginning of a bag file
+message BagHeader {
+  uint32 version = 1;
+  string format_id = 2;  // e.g., "JR_BAG"
+}
+
+// A single recorded message
+message BagRecord {
+  string topic = 1;
+  string type_full_name = 2;
+  bytes payload = 3;           // Serialized protobuf message
+  uint64 timestamp_ns = 4;     // Nanoseconds since epoch
+}
+
+// Container for multiple records (optional, for streaming)
+message BagRecordBatch {
+  repeated BagRecord records = 1;
+}
+

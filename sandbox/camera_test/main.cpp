@@ -1,3 +1,5 @@
+#include <bag/bag_reader.hpp>
+#include <bag/bag_writer.hpp>
 #include <middleware/middleware.hpp>
 #include <middleware/node.hpp>
 
@@ -177,23 +179,46 @@ private:
   jr::mw::Subscription sub_gray_;
 };
 
+#define WRITE_MODE 0
+
 int main() {
   jr::mw::init();
 
-  auto pub_node = std::make_shared<CameraPublisherNode>();
-  auto sub_node = std::make_shared<GraySubscriberNode>();
   auto vis_node = std::make_shared<VisualizerNode>();
+#if WRITE_MODE
+    auto pub_node = std::make_shared<CameraPublisherNode>();
+    auto sub_node = std::make_shared<GraySubscriberNode>();
+#endif
+
+#if WRITE_MODE
+  jr::mw::BagWriter bag_writer("camera_test.bag");
+#else
+  jr::mw::BagReader bag_reader("camera_test.bag");
+#endif
 
   // TODO:
   // - add spin_async?
-  // - add bag support
-  // - write sample bag
   std::thread spin_thread([&]() {
-    jr::mw::spin(std::vector<std::shared_ptr<jr::mw::Node>>{pub_node, sub_node}
-    );
+#if WRITE_MODE
+      jr::mw::spin(std::vector<std::shared_ptr<jr::mw::Node>>{
+        pub_node,
+        sub_node,
+      });
+#else
+      bag_reader.play();
+      jr::mw::shutdown();
+#endif
   });
 
+#if WRITE_MODE
+  bag_writer.record_all();
+#endif
+
   jr::mw::spin(vis_node);
+
+#if !WRITE_MODE
+  bag_reader.stop();
+#endif
 
   spin_thread.join();
 

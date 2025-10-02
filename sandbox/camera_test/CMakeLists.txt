@@ -10,5 +10,6 @@ target_link_libraries(camera_test PRIVATE
     opencv_highgui
     opencv_videoio
     jr_middleware
+    jr_bag
     jr_msgs::jr_msgs
 )

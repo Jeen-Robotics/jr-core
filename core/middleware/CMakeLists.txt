@@ -1,3 +1,5 @@
+find_package(protobuf CONFIG REQUIRED)
+
 add_library(jr_middleware
     src/subscription.cpp
     src/middleware.cpp
@@ -7,7 +9,6 @@ add_library(jr_middleware
 
 target_include_directories(jr_middleware PUBLIC include/)
 
-find_package(protobuf CONFIG REQUIRED)
 target_link_libraries(jr_middleware PUBLIC protobuf::libprotobuf)
 
 install(TARGETS jr_middleware DESTINATION lib)
