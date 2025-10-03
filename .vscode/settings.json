@@ -1,11 +1,4 @@
 {
     "clangd.arguments": ["--compile-commands-dir=build"],
-    "cmake.buildDirectory": "${workspaceFolder}/build",
-    "cmake.exportCompileCommandsFile": true,
-    "cmake.configureArgs": [
-        "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/build/conan_toolchain.cmake",
-        "-DBUILD_SHARED_LIBS=ON",
-        "-DBUILD_SANDBOX=ON",
-        "-DBUILD_TESTS=ON"
-    ]
+    "cmake.exportCompileCommandsFile": true
 }
