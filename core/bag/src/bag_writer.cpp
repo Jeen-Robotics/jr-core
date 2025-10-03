@@ -4,6 +4,7 @@
 #include <middleware/middleware.hpp>
 
 #include <chrono>
+#include <zstd.h>
 
 namespace jr::mw {
 
@@ -33,8 +34,9 @@ bool BagWriter::open() {
   if (out_.is_open()) {
     // Write protobuf header
     BagHeader header;
-    header.set_version(1);
+    header.set_version(2); // Version 2 with compression support
     header.set_format_id("JR_BAG");
+    header.set_compression(COMPRESSION_ZSTD);
 
     std::string header_data;
     header.SerializeToString(&header_data);
@@ -84,10 +86,35 @@ void BagWriter::write_record(
   std::string record_data;
   record.SerializeToString(&record_data);
 
-  // Write record size followed by record data (length-delimited format)
-  uint32_t record_size = static_cast<uint32_t>(record_data.size());
+  // Compress record with zstd
+  size_t const compressed_bound = ZSTD_compressBound(record_data.size());
+  std::string compressed_data(compressed_bound, '\0');
+
+  size_t const compressed_size = ZSTD_compress(
+    compressed_data.data(),
+    compressed_bound,
+    record_data.data(),
+    record_data.size(),
+    3 // Compression level: 3 is a good balance of speed and ratio
+  );
+
+  if (ZSTD_isError(compressed_size)) {
+    // If compression fails, write uncompressed (shouldn't happen)
+    uint32_t record_size = static_cast<uint32_t>(record_data.size());
+    out_.write(
+      reinterpret_cast<const char*>(&record_size),
+      sizeof(record_size)
+    );
+    out_.write(record_data.data(), record_data.size());
+    return;
+  }
+
+  compressed_data.resize(compressed_size);
+
+  // Write compressed record size followed by compressed data
+  uint32_t record_size = static_cast<uint32_t>(compressed_data.size());
   out_.write(reinterpret_cast<const char*>(&record_size), sizeof(record_size));
-  out_.write(record_data.data(), record_data.size());
+  out_.write(compressed_data.data(), compressed_data.size());
 }
 
 void BagWriter::record_topic(const std::string& topic) {

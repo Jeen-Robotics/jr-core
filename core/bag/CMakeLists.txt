@@ -1,4 +1,5 @@
 find_package(protobuf CONFIG REQUIRED)
+find_package(zstd CONFIG REQUIRED)
 
 # Generate protobuf sources from bag.proto
 set(PROTO_FILE "${CMAKE_CURRENT_SOURCE_DIR}/bag.proto")
@@ -28,7 +29,7 @@ target_include_directories(jr_bag
         ${CMAKE_CURRENT_BINARY_DIR}  # For generated protobuf headers
 )
 
-target_link_libraries(jr_bag PRIVATE protobuf::libprotobuf jr_middleware)
+target_link_libraries(jr_bag PRIVATE protobuf::libprotobuf jr_middleware zstd::libzstd_static)
 
 install(TARGETS jr_bag DESTINATION lib)
 install(FILES ${INTERFACE_INCLUDE_DIRECTORIES})

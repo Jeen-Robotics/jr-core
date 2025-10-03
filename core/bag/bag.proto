@@ -2,10 +2,17 @@ syntax = "proto3";
 
 package jr.mw;
 
+// Compression types
+enum CompressionType {
+  COMPRESSION_NONE = 0;
+  COMPRESSION_ZSTD = 1;
+}
+
 // Header written at the beginning of a bag file
 message BagHeader {
   uint32 version = 1;
   string format_id = 2;  // e.g., "JR_BAG"
+  CompressionType compression = 3;  // Compression used for records
 }
 
 // A single recorded message

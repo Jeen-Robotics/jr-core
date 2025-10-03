@@ -28,6 +28,7 @@ private:
   std::shared_ptr<Middleware> mw_;
   std::ifstream in_;
   std::atomic_bool is_playing_ = false;
+  int compression_type_ = 0; // 0 = COMPRESSION_NONE, 1 = COMPRESSION_ZSTD
 
   bool read_record(
     std::string& topic,

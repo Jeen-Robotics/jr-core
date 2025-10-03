@@ -6,6 +6,7 @@
 #include <chrono>
 #include <iostream>
 #include <thread>
+#include <zstd.h>
 
 namespace jr::mw {
 
@@ -60,7 +61,14 @@ bool BagReader::open() {
       return false;
     }
 
-    std::cout << "Opened bag file version " << header.version() << "\n";
+    // Store compression type for reading records
+    compression_type_ = static_cast<int>(header.compression());
+
+    std::cout << "Opened bag file version " << header.version();
+    if (compression_type_ == 1) {
+      std::cout << " (zstd compressed)";
+    }
+    std::cout << "\n";
   }
 
   return in_.is_open();
@@ -106,11 +114,43 @@ bool BagReader::read_record(
   }
 
   // Read record data
-  std::string record_data;
-  record_data.resize(record_size);
-  if (!in_.read(record_data.data(), record_size)) {
+  std::string compressed_data;
+  compressed_data.resize(record_size);
+  if (!in_.read(compressed_data.data(), record_size)) {
     std::cerr << "BagReader::read_record: failed to read record data\n";
     return false;
+  }
+
+  std::string record_data;
+
+  // Decompress if needed
+  if (compression_type_ == 1) { // COMPRESSION_ZSTD
+    // Get decompressed size
+    unsigned long long const decompressed_size =
+      ZSTD_getFrameContentSize(compressed_data.data(), compressed_data.size());
+
+    if (decompressed_size == ZSTD_CONTENTSIZE_ERROR ||
+        decompressed_size == ZSTD_CONTENTSIZE_UNKNOWN) {
+      std::cerr << "BagReader::read_record: invalid zstd frame\n";
+      return false;
+    }
+
+    record_data.resize(decompressed_size);
+    size_t const actual_size = ZSTD_decompress(
+      record_data.data(),
+      decompressed_size,
+      compressed_data.data(),
+      compressed_data.size()
+    );
+
+    if (ZSTD_isError(actual_size)) {
+      std::cerr << "BagReader::read_record: zstd decompression failed: "
+                << ZSTD_getErrorName(actual_size) << "\n";
+      return false;
+    }
+  } else {
+    // No compression
+    record_data = std::move(compressed_data);
   }
 
   // Parse protobuf record
