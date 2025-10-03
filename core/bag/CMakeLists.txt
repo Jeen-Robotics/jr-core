@@ -1,5 +1,7 @@
 find_package(protobuf CONFIG REQUIRED)
 find_package(zstd CONFIG REQUIRED)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio)
+find_package(jr_msgs CONFIG REQUIRED)
 
 # Generate protobuf sources from bag.proto
 set(PROTO_FILE "${CMAKE_CURRENT_SOURCE_DIR}/bag.proto")
@@ -18,6 +20,8 @@ add_custom_command(
 add_library(jr_bag
     src/bag_reader.cpp
     src/bag_writer.cpp
+    src/video_encoder.cpp
+    src/video_decoder.cpp
     ${PROTO_SRC}
     ${PROTO_HDR}
 )
@@ -29,7 +33,16 @@ target_include_directories(jr_bag
         ${CMAKE_CURRENT_BINARY_DIR}  # For generated protobuf headers
 )
 
-target_link_libraries(jr_bag PRIVATE protobuf::libprotobuf jr_middleware zstd::libzstd_static)
+target_link_libraries(jr_bag 
+    PRIVATE 
+        jr_middleware 
+        jr_msgs::jr_msgs
+        protobuf::libprotobuf 
+        zstd::libzstd_static
+        opencv_core
+        opencv_imgproc
+        opencv_videoio
+)
 
 install(TARGETS jr_bag DESTINATION lib)
 install(FILES ${INTERFACE_INCLUDE_DIRECTORIES})

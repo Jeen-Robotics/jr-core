@@ -1,9 +1,13 @@
 #include "bag/bag_reader.hpp"
 
+#include "video_decoder.hpp"
+
 #include <bag.pb.h>
 #include <middleware/middleware.hpp>
+#include <sensor_msgs.pb.h>
 
 #include <chrono>
+#include <filesystem>
 #include <iostream>
 #include <thread>
 #include <zstd.h>
@@ -12,12 +16,14 @@ namespace jr::mw {
 
 BagReader::BagReader(const std::string& path)
     : path_(path)
-    , mw_(get()) {
+    , mw_(get())
+    , video_decoder_(std::make_unique<VideoDecoder>()) {
 }
 
 BagReader::BagReader(const std::string& path, std::shared_ptr<Middleware> mw)
     : path_(path)
-    , mw_(std::move(mw)) {
+    , mw_(std::move(mw))
+    , video_decoder_(std::make_unique<VideoDecoder>()) {
 }
 
 BagReader::~BagReader() {
@@ -168,6 +174,16 @@ bool BagReader::read_record(
   return true;
 }
 
+std::string BagReader::resolve_video_path(const std::string& relative_path) {
+  // Get bag directory
+  std::filesystem::path bag_path(path_);
+  std::filesystem::path bag_dir = bag_path.parent_path();
+
+  // Resolve relative video path
+  std::filesystem::path video_path = bag_dir / relative_path;
+  return video_path.string();
+}
+
 void BagReader::play(double rate) {
   if (!mw_) {
     return;
@@ -182,11 +198,64 @@ void BagReader::play(double rate) {
   std::uint64_t first_ts = 0;
   auto wall_start = std::chrono::steady_clock::now();
   is_playing_.store(true);
+
   while (is_playing_.load() && read_record(topic, type, payload, ts)) {
     if (first_ts == 0) {
       first_ts = ts;
     }
 
+    // Check if this is a video frame reference
+    if (type == "jr.mw.VideoFrameReference") {
+      // Deserialize frame reference
+      VideoFrameReference frame_ref;
+      if (!frame_ref.ParseFromString(payload)) {
+        std::cerr << "BagReader: failed to parse video frame reference\n";
+        continue;
+      }
+
+      // Resolve video file path
+      std::string video_path = resolve_video_path(frame_ref.video_file());
+
+      // Decode the frame
+      sensor_msgs::Image frame_msg;
+      if (!video_decoder_->decode_frame(
+            video_path,
+            frame_ref.frame_index(),
+            frame_ref.width(),
+            frame_ref.height(),
+            frame_ref.encoding(),
+            frame_ref.seq(),
+            frame_msg
+          )) {
+        std::cerr << "BagReader: failed to decode frame "
+                  << frame_ref.frame_index() << " from " << video_path << "\n";
+        continue;
+      }
+
+      // Publish as sensor_msgs::Image
+      std::string frame_payload;
+      frame_msg.SerializeToString(&frame_payload);
+
+      // Apply playback rate timing
+      if (rate > 0) {
+        std::uint64_t target_ns =
+          static_cast<std::uint64_t>((ts - first_ts) / rate);
+        auto target = wall_start + std::chrono::nanoseconds(target_ns);
+        auto now = std::chrono::steady_clock::now();
+        if (target > now) {
+          std::this_thread::sleep_for(target - now);
+        }
+      }
+
+      mw_->publish_serialized(
+        frame_ref.topic(),
+        "sensor_msgs.Image",
+        frame_payload
+      );
+      continue;
+    }
+
+    // Regular message
     if (rate > 0) {
       std::uint64_t target_ns =
         static_cast<std::uint64_t>((ts - first_ts) / rate);

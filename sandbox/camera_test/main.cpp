@@ -180,18 +180,23 @@ private:
 };
 
 #define WRITE_MODE 0
-
 int main() {
   jr::mw::init();
 
   auto vis_node = std::make_shared<VisualizerNode>();
 #if WRITE_MODE
-    auto pub_node = std::make_shared<CameraPublisherNode>();
-    auto sub_node = std::make_shared<GraySubscriberNode>();
+  auto pub_node = std::make_shared<CameraPublisherNode>();
+  auto sub_node = std::make_shared<GraySubscriberNode>();
 #endif
 
 #if WRITE_MODE
   jr::mw::BagWriter bag_writer("camera_test.bag");
+
+  // Optional: Configure video encoding parameters
+  // jr::mw::VideoEncoderConfig video_config;
+  // video_config.codec = jr::mw::VideoEncoderConfig::Codec::H264;
+  // video_config.fps = 30.0;
+  // bag_writer.set_video_config(video_config);
 #else
   jr::mw::BagReader bag_reader("camera_test.bag");
 #endif
@@ -200,13 +205,13 @@ int main() {
   // - add spin_async?
   std::thread spin_thread([&]() {
 #if WRITE_MODE
-      jr::mw::spin(std::vector<std::shared_ptr<jr::mw::Node>>{
-        pub_node,
-        sub_node,
-      });
+    jr::mw::spin(std::vector<std::shared_ptr<jr::mw::Node>>{
+      pub_node,
+      sub_node,
+    });
 #else
-      bag_reader.play();
-      jr::mw::shutdown();
+    bag_reader.play();
+    jr::mw::shutdown();
 #endif
   });
 

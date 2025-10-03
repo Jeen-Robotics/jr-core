@@ -28,3 +28,20 @@ message BagRecordBatch {
   repeated BagRecord records = 1;
 }
 
+// Video codec types
+enum VideoCodec {
+  VIDEO_CODEC_H264 = 0;
+  VIDEO_CODEC_H265 = 1;
+  VIDEO_CODEC_MJPEG = 2;
+}
+
+// Reference to a frame in an external video file
+message VideoFrameReference {
+  string topic = 1;
+  string video_file = 2;      // Relative path to video file (e.g., "bagname_topic.avi")
+  uint64 frame_index = 3;     // Frame index in the video file
+  uint32 width = 4;
+  uint32 height = 5;
+  string encoding = 6;        // Original image encoding (e.g., "8UC3")
+  uint32 seq = 7;             // Sequence number from original message
+}

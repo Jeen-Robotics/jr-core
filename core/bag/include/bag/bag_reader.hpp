@@ -9,6 +9,7 @@
 namespace jr::mw {
 
 class Middleware;
+class VideoDecoder;
 
 class BagReader {
 public:
@@ -30,12 +31,18 @@ private:
   std::atomic_bool is_playing_ = false;
   int compression_type_ = 0; // 0 = COMPRESSION_NONE, 1 = COMPRESSION_ZSTD
 
+  // Video decoder (shared across all video files)
+  std::unique_ptr<VideoDecoder> video_decoder_;
+
   bool read_record(
     std::string& topic,
     std::string& type,
     std::string& payload,
     std::uint64_t& ts
   );
+
+  // Resolve relative video file path to absolute path
+  std::string resolve_video_path(const std::string& relative_path);
 };
 
 } // namespace jr::mw
