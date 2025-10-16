@@ -1,5 +1,6 @@
 #include <bag/bag_reader.hpp>
 #include <bag/bag_writer.hpp>
+#include <camera_node/camera_node.hpp>
 #include <middleware/middleware.hpp>
 #include <middleware/node.hpp>
 
@@ -11,7 +12,7 @@
 #include <mutex>
 #include <thread>
 
-std::string serialize(int encoding) {
+std::string serialize(const int encoding) {
   switch (encoding) {
   case CV_8UC1:
     return "8UC1";
@@ -31,12 +32,12 @@ int deserialize(const std::string& encoding) {
 }
 
 sensor_msgs::Image to_msg(const cv::Mat& frame) {
-  auto now_sec = std::chrono::time_point_cast<std::chrono::nanoseconds>(
-                   std::chrono::system_clock::now()
-                 )
-                   .time_since_epoch()
-                   .count() *
-                 1e-9;
+  const auto now_sec = std::chrono::time_point_cast<std::chrono::nanoseconds>(
+                         std::chrono::system_clock::now()
+                       )
+                         .time_since_epoch()
+                         .count() *
+                       1e-9;
 
   sensor_msgs::Image msg;
 
@@ -67,42 +68,16 @@ cv::Mat from_msg(const sensor_msgs::Image& msg) {
     .clone();
 }
 
-class CameraPublisherNode : public jr::mw::Node {
-public:
-  explicit CameraPublisherNode()
-      : jr::mw::Node("camera_publisher")
-      , camera_(0)
-      , pub_(create_publisher<sensor_msgs::Image>("/camera/frame")) {
-  }
-
-  void spin_once() override {
-    if (!camera_.isOpened())
-      return;
-
-    cv::Mat frame;
-    camera_ >> frame;
-    if (frame.empty()) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      return;
-    }
-
-    pub_.publish(to_msg(frame));
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-
-private:
-  cv::VideoCapture camera_;
-  jr::mw::Publisher<sensor_msgs::Image> pub_;
-};
-
-class GraySubscriberNode : public jr::mw::Node {
+class GraySubscriberNode final : public jr::mw::Node {
 public:
   explicit GraySubscriberNode()
       : jr::mw::Node("gray_subscriber")
-      , sub_(create_subscription<sensor_msgs::Image>(
-          "/camera/frame",
-          [this](const sensor_msgs::Image& frame) { on_frame(frame); }
-        ))
+      , sub_(
+          create_subscription<sensor_msgs::Image>(
+            "/camera/frame",
+            [this](const sensor_msgs::Image& frame) { on_frame(frame); }
+          )
+        )
       , pub_(create_publisher<sensor_msgs::Image>("/camera/gray")) {
   }
 
@@ -110,14 +85,14 @@ private:
   jr::mw::Subscription sub_;
   jr::mw::Publisher<sensor_msgs::Image> pub_;
 
-  void on_frame(const sensor_msgs::Image& frame) {
+  void on_frame(const sensor_msgs::Image& frame) const {
     cv::Mat gray = from_msg(frame);
     cv::cvtColor(gray, gray, cv::COLOR_BGR2GRAY);
     pub_.publish(to_msg(gray));
   }
 };
 
-class VisualizerNode : public jr::mw::Node {
+class VisualizerNode final : public jr::mw::Node {
 public:
   explicit VisualizerNode()
       : jr::mw::Node("visualizer") {
@@ -162,7 +137,7 @@ public:
       cv::imshow("Gray", gray_copy);
     }
 
-    int key = cv::waitKey(1);
+    const auto key = cv::waitKey(1);
     if (key == 'q') {
       jr::mw::shutdown();
     }
@@ -179,14 +154,17 @@ private:
   jr::mw::Subscription sub_gray_;
 };
 
-#define WRITE_MODE 0
+#define WRITE_MODE 1
 int main() {
   jr::mw::init();
 
-  auto vis_node = std::make_shared<VisualizerNode>();
+  const auto vis_node = std::make_shared<VisualizerNode>();
 #if WRITE_MODE
-  auto pub_node = std::make_shared<CameraPublisherNode>();
-  auto sub_node = std::make_shared<GraySubscriberNode>();
+  const auto pub_node = std::make_shared<jr::CameraNode>(
+    "camera_publisher",
+    jr::CameraNode::Config{"/camera/frame", 0}
+  );
+  const auto sub_node = std::make_shared<GraySubscriberNode>();
 #endif
 
 #if WRITE_MODE
@@ -205,10 +183,12 @@ int main() {
   // - add spin_async?
   std::thread spin_thread([&]() {
 #if WRITE_MODE
-    jr::mw::spin(std::vector<std::shared_ptr<jr::mw::Node>>{
-      pub_node,
-      sub_node,
-    });
+    jr::mw::spin(
+      std::vector<std::shared_ptr<jr::mw::Node>>{
+        pub_node,
+        sub_node,
+      }
+    );
 #else
     bag_reader.play();
     jr::mw::shutdown();
