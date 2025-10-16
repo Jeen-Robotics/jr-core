@@ -29,7 +29,7 @@ void Subscription::unsubscribe() {
     return;
   }
 
-  if (auto owner = owner_.lock()) {
+  if (const auto owner = owner_.lock()) {
     owner->do_unsubscribe(id_);
   }
 
@@ -40,7 +40,10 @@ bool Subscription::valid() const noexcept {
   return id_ != 0;
 }
 
-Subscription::Subscription(std::weak_ptr<Middleware> owner, std::uint64_t id)
+Subscription::Subscription(
+  std::weak_ptr<Middleware> owner,
+  const std::uint64_t id
+)
     : owner_(std::move(owner))
     , id_(id) {
 }

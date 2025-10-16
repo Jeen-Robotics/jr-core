@@ -22,7 +22,7 @@ void Middleware::publish(
   const auto* desc = message.GetDescriptor();
   std::string type_name;
   if (desc) {
-    auto sv = desc->full_name();
+    const auto sv = desc->full_name();
     type_name.assign(sv.data(), sv.size());
   }
   std::string payload;
@@ -54,10 +54,8 @@ Subscription Middleware::subscribe_any(
   return do_subscribe_any(topic, std::move(callback));
 }
 
-std::shared_ptr<Middleware> Middleware::create(BackendKind backend) {
+std::shared_ptr<Middleware> Middleware::create(const BackendKind backend) {
   switch (backend) {
-  case BackendKind::InProcess:
-    return std::make_shared<InProcessMiddleware>();
   default:
     return std::make_shared<InProcessMiddleware>();
   }
@@ -82,7 +80,7 @@ RuntimeState& runtime() {
 
 } // namespace
 
-std::shared_ptr<Middleware> get(BackendKind backend) {
+std::shared_ptr<Middleware> get(const BackendKind backend) {
   auto& rt = runtime();
   std::lock_guard<std::mutex> lock(rt.mutex);
   if (!rt.mw) {
@@ -92,7 +90,7 @@ std::shared_ptr<Middleware> get(BackendKind backend) {
   return rt.mw;
 }
 
-void init(BackendKind backend) {
+void init(const BackendKind backend) {
   auto& rt = runtime();
   std::unique_lock<std::mutex> lock(rt.mutex);
   if (rt.mw) {
@@ -105,8 +103,8 @@ void init(BackendKind backend) {
   rt.running = true;
 }
 
-void spin(std::shared_ptr<Node> node) {
-  auto& rt = runtime();
+void spin(const std::shared_ptr<Node>& node) {
+  const auto& rt = runtime();
   while (rt.running.load()) {
     node->spin_once();
     std::this_thread::sleep_for(std::chrono::milliseconds(1));

@@ -34,13 +34,13 @@ public:
     const std::string& topic,
     const std::string& type_full_name,
     std::function<void(const google::protobuf::Message&)> callback
-  );
+  ) const;
 
   Subscription create_subscription_any(
     const std::string& topic,
     std::function<void(const std::string&, const google::protobuf::Message&)>
       callback
-  );
+  ) const;
 
   bool valid() const noexcept;
 

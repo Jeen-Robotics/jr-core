@@ -77,7 +77,7 @@ private:
 
   void ensure_dispatcher(const std::string& topic, TopicState& state);
 
-  void dispatch_loop(std::string topic);
+  void dispatch_loop(const std::string& topic);
 
   mutable std::mutex mutex_;
   std::unordered_map<std::string, TopicState> topics_;

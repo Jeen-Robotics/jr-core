@@ -23,7 +23,7 @@ Subscription Node::create_dynamic_subscription(
   const std::string& topic,
   const std::string& type_full_name,
   std::function<void(const google::protobuf::Message&)> callback
-) {
+) const {
   return mw_->subscribe(topic, type_full_name, std::move(callback));
 }
 
@@ -31,7 +31,7 @@ Subscription Node::create_subscription_any(
   const std::string& topic,
   std::function<void(const std::string&, const google::protobuf::Message&)>
     callback
-) {
+) const {
   return mw_->subscribe_any(topic, std::move(callback));
 }
 

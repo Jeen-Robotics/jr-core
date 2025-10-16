@@ -84,10 +84,10 @@ void InProcessMiddleware::do_publish_serialized(
   state.cv.notify_one();
 }
 
-void InProcessMiddleware::do_unsubscribe(std::uint64_t id) {
+void InProcessMiddleware::do_unsubscribe(const std::uint64_t id) {
   std::unique_lock<std::mutex> lock(mutex_);
 
-  auto it = subscription_to_topic_.find(id);
+  const auto it = subscription_to_topic_.find(id);
   if (it == subscription_to_topic_.end()) {
     return;
   }
@@ -96,7 +96,7 @@ void InProcessMiddleware::do_unsubscribe(std::uint64_t id) {
   subscription_to_topic_.erase(it);
   TopicState& state = topics_[topic];
 
-  // Remove from typed list
+  // Remove from a typed list
   for (auto sub_it = state.subscriptions_typed.begin();
        sub_it != state.subscriptions_typed.end();
        ++sub_it) {
@@ -142,13 +142,11 @@ void InProcessMiddleware::shutdown() {
 }
 
 std::vector<TopicInfo> InProcessMiddleware::get_topic_names_and_types() const {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::lock_guard lock(mutex_);
   std::vector<TopicInfo> out;
   out.reserve(topics_.size());
-  for (const auto& kv : topics_) {
-    const auto& name = kv.first;
-    const auto& st = kv.second;
-    out.push_back(
+  for (const auto& [name, st] : topics_) {
+    out.emplace_back(
       TopicInfo{name, st.has_type ? st.type_full_name : std::string{}}
     );
   }
@@ -157,7 +155,7 @@ std::vector<TopicInfo> InProcessMiddleware::get_topic_names_and_types() const {
 
 std::uint64_t InProcessMiddleware::now_ns() {
   using namespace std::chrono;
-  auto tp = system_clock::now().time_since_epoch();
+  const auto tp = system_clock::now().time_since_epoch();
   return duration_cast<nanoseconds>(tp).count();
 }
 
@@ -194,9 +192,9 @@ void InProcessMiddleware::ensure_dispatcher(
   }
 }
 
-void InProcessMiddleware::dispatch_loop(std::string topic) {
+void InProcessMiddleware::dispatch_loop(const std::string& topic) {
   for (;;) {
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::unique_lock lock(mutex_);
 
     TopicState& state = topics_[topic];
     state.cv.wait(lock, [&]() {

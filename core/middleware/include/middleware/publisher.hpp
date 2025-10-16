@@ -12,7 +12,7 @@ class Publisher {
 public:
   Publisher() = default;
 
-  Publisher(std::string topic)
+  explicit Publisher(std::string topic)
       : topic_(std::move(topic))
       , owner_(get()) {
   }

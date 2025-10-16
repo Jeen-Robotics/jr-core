@@ -49,7 +49,7 @@ public:
   template <typename ProtoT>
   void publish(const std::string& topic, const ProtoT& message) {
     static_assert(
-      std::is_base_of<google::protobuf::Message, ProtoT>::value,
+      std::is_base_of_v<google::protobuf::Message, ProtoT>,
       "ProtoT must derive from google::protobuf::Message"
     );
     publish(topic, static_cast<const google::protobuf::Message&>(message));
@@ -62,7 +62,7 @@ public:
     std::function<void(const ProtoT&)> callback
   ) {
     static_assert(
-      std::is_base_of<google::protobuf::Message, ProtoT>::value,
+      std::is_base_of_v<google::protobuf::Message, ProtoT>,
       "ProtoT must derive from google::protobuf::Message"
     );
     const auto* desc = ProtoT::descriptor();
@@ -107,7 +107,7 @@ public:
 protected:
   friend class Subscription;
 
-  Subscription make_subscription(std::uint64_t id) {
+  Subscription make_subscription(const std::uint64_t id) {
     return Subscription{weak_from_this(), id};
   }
 
@@ -138,7 +138,7 @@ protected:
 std::shared_ptr<Middleware> get(BackendKind backend = BackendKind::InProcess);
 
 void init(BackendKind backend = BackendKind::InProcess);
-void spin(std::shared_ptr<Node> node);
+void spin(const std::shared_ptr<Node>& node);
 void spin(const std::vector<std::shared_ptr<Node>>& nodes);
 void shutdown();
 
