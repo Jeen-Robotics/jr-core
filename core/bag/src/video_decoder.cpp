@@ -14,7 +14,7 @@ sensor_msgs::Image to_msg(
   std::uint32_t width,
   std::uint32_t height,
   const std::string& encoding,
-  std::uint32_t seq
+  const std::uint32_t seq
 ) {
   sensor_msgs::Image msg;
 
@@ -71,11 +71,11 @@ cv::VideoCapture* VideoDecoder::get_video_capture(const std::string& video_path
 
 bool VideoDecoder::decode_frame(
   const std::string& video_path,
-  std::uint64_t frame_index,
-  std::uint32_t width,
-  std::uint32_t height,
+  const std::uint64_t frame_index,
+  const std::uint32_t width,
+  const std::uint32_t height,
   const std::string& encoding,
-  std::uint32_t seq,
+  const std::uint32_t seq,
   sensor_msgs::Image& msg
 ) {
   cv::VideoCapture* capture = get_video_capture(video_path);

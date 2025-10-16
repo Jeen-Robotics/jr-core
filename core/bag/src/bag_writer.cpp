@@ -1,6 +1,6 @@
 #include "bag/bag_writer.hpp"
 
-#include "video_encoder.hpp"
+#include <zstd.h>
 
 #include <bag.pb.h>
 #include <middleware/middleware.hpp>
@@ -8,8 +8,27 @@
 
 #include <chrono>
 #include <filesystem>
-#include <iostream>
-#include <zstd.h>
+
+#include "video_encoder.hpp"
+
+namespace {
+
+std::string sanitize_topic_name(const std::string& topic) {
+  std::string result = topic;
+  // Replace slashes and special characters with underscores
+  for (char& c : result) {
+    if (c == '/' || c == ' ' || c == ':') {
+      c = '_';
+    }
+  }
+  // Remove leading underscores
+  while (!result.empty() && result[0] == '_') {
+    result = result.substr(1);
+  }
+  return result;
+}
+
+} // namespace
 
 namespace jr::mw {
 
@@ -32,7 +51,7 @@ void BagWriter::set_video_config(VideoEncoderConfig config) {
 }
 
 bool BagWriter::open() {
-  std::lock_guard<std::mutex> lock(out_mutex_);
+  std::lock_guard lock(out_mutex_);
 
   if (out_.is_open()) {
     return true;
@@ -51,7 +70,7 @@ bool BagWriter::open() {
     header.SerializeToString(&header_data);
 
     // Write header size followed by header data
-    uint32_t header_size = static_cast<uint32_t>(header_data.size());
+    const auto header_size = static_cast<uint32_t>(header_data.size());
     out_.write(
       reinterpret_cast<const char*>(&header_size),
       sizeof(header_size)
@@ -75,33 +94,20 @@ void BagWriter::close() {
   }
 }
 
-std::string BagWriter::sanitize_topic_name(const std::string& topic) {
-  std::string result = topic;
-  // Replace slashes and special characters with underscores
-  for (char& c : result) {
-    if (c == '/' || c == ' ' || c == ':') {
-      c = '_';
-    }
-  }
-  // Remove leading underscores
-  while (!result.empty() && result[0] == '_') {
-    result = result.substr(1);
-  }
-  return result;
-}
-
-std::string BagWriter::get_video_path_for_topic(const std::string& topic) {
+std::string BagWriter::get_video_path_for_topic(
+  const std::string& topic
+) const {
   // Extract bag directory and base name
-  std::filesystem::path bag_path(path_);
-  std::filesystem::path bag_dir = bag_path.parent_path();
-  std::string bag_base = bag_path.stem().string(); // filename without extension
+  const std::filesystem::path bag_path(path_);
+  const auto bag_dir = bag_path.parent_path();
+  const auto bag_base = bag_path.stem().string(); // filename without extension
 
-  // Create video filename: bagname_topic.avi
-  std::string sanitized_topic = sanitize_topic_name(topic);
-  std::string video_filename = bag_base + "_" + sanitized_topic + ".avi";
+  // Create video filename: bag-name_topic.avi
+  const auto sanitized_topic = sanitize_topic_name(topic);
+  const auto video_filename = bag_base + "_" + sanitized_topic + ".avi";
 
-  // Full path to video file
-  std::filesystem::path video_path = bag_dir / video_filename;
+  // Full path to a video file
+  const auto video_path = bag_dir / video_filename;
   return video_path.string();
 }
 
@@ -109,9 +115,9 @@ void BagWriter::write_record(
   const std::string& topic,
   const std::string& type_full_name,
   const std::string& payload,
-  std::uint64_t ts_ns
+  const std::uint64_t ts_ns
 ) {
-  std::lock_guard<std::mutex> lock(out_mutex_);
+  std::lock_guard lock(out_mutex_);
 
   if (!out_.is_open()) {
     return;
@@ -142,7 +148,7 @@ void BagWriter::write_record(
 
   if (ZSTD_isError(compressed_size)) {
     // If compression fails, write uncompressed (shouldn't happen)
-    uint32_t record_size = static_cast<uint32_t>(record_data.size());
+    const auto record_size = static_cast<uint32_t>(record_data.size());
     out_.write(
       reinterpret_cast<const char*>(&record_size),
       sizeof(record_size)
@@ -154,7 +160,7 @@ void BagWriter::write_record(
   compressed_data.resize(compressed_size);
 
   // Write compressed record size followed by compressed data
-  uint32_t record_size = static_cast<uint32_t>(compressed_data.size());
+  const auto record_size = static_cast<uint32_t>(compressed_data.size());
   out_.write(reinterpret_cast<const char*>(&record_size), sizeof(record_size));
   out_.write(compressed_data.data(), compressed_data.size());
 }
@@ -191,8 +197,7 @@ void BagWriter::record_topic(const std::string& topic) {
         }
 
         // Add frame to encoder and write reference immediately
-        auto frame_ref = encoder->add_frame(*image_msg);
-        if (frame_ref) {
+        if (auto frame_ref = encoder->add_frame(*image_msg)) {
           // Create VideoFrameReference protobuf message
           VideoFrameReference ref_msg;
           ref_msg.set_topic(frame_ref->topic);

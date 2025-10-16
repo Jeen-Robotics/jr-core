@@ -41,8 +41,8 @@ private:
     std::uint64_t& ts
   );
 
-  // Resolve relative video file path to absolute path
-  std::string resolve_video_path(const std::string& relative_path);
+  // Resolve a relative video file path to an absolute path
+  std::string resolve_video_path(const std::string& relative_path) const;
 };
 
 } // namespace jr::mw

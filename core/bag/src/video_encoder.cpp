@@ -114,10 +114,10 @@ std::optional<VideoFrameRef> VideoEncoder::add_frame(
     return std::nullopt;
   }
 
-  // Convert message to cv::Mat
-  cv::Mat frame = from_msg(msg);
+  // Convert a message to cv::Mat
+  const auto frame = from_msg(msg);
 
-  // Write frame immediately to video file
+  // Write frame immediately to a video file
   writer_->write(frame);
 
   // Create frame reference

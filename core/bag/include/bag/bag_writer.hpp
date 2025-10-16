@@ -50,8 +50,7 @@ private:
     std::uint64_t ts_ns
   );
 
-  std::string sanitize_topic_name(const std::string& topic);
-  std::string get_video_path_for_topic(const std::string& topic);
+  std::string get_video_path_for_topic(const std::string& topic) const;
 };
 
 } // namespace jr::mw

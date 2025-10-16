@@ -1,6 +1,6 @@
 #include "bag/bag_reader.hpp"
 
-#include "video_decoder.hpp"
+#include <zstd.h>
 
 #include <bag.pb.h>
 #include <middleware/middleware.hpp>
@@ -10,7 +10,14 @@
 #include <filesystem>
 #include <iostream>
 #include <thread>
-#include <zstd.h>
+
+#include "video_decoder.hpp"
+
+namespace {
+
+constexpr size_t MAX_RECORD_SIZE = 100 * 1024 * 1024; // 100MB max
+
+}
 
 namespace jr::mw {
 
@@ -112,7 +119,6 @@ bool BagReader::read_record(
   }
 
   // Validate record size to detect corruption
-  const size_t MAX_RECORD_SIZE = 100 * 1024 * 1024; // 100MB max
   if (record_size > MAX_RECORD_SIZE) {
     std::cerr << "BagReader::read_record: invalid record size " << record_size
               << " - possible corruption\n";
@@ -174,13 +180,15 @@ bool BagReader::read_record(
   return true;
 }
 
-std::string BagReader::resolve_video_path(const std::string& relative_path) {
+std::string BagReader::resolve_video_path(
+  const std::string& relative_path
+) const {
   // Get bag directory
-  std::filesystem::path bag_path(path_);
-  std::filesystem::path bag_dir = bag_path.parent_path();
+  const std::filesystem::path bag_path(path_);
+  const auto bag_dir = bag_path.parent_path();
 
-  // Resolve relative video path
-  std::filesystem::path video_path = bag_dir / relative_path;
+  // Resolve a relative video path
+  const auto video_path = bag_dir / relative_path;
   return video_path.string();
 }
 
@@ -213,7 +221,7 @@ void BagReader::play(double rate) {
         continue;
       }
 
-      // Resolve video file path
+      // Resolve a video file path
       std::string video_path = resolve_video_path(frame_ref.video_file());
 
       // Decode the frame
@@ -240,8 +248,8 @@ void BagReader::play(double rate) {
       if (rate > 0) {
         std::uint64_t target_ns =
           static_cast<std::uint64_t>((ts - first_ts) / rate);
-        auto target = wall_start + std::chrono::nanoseconds(target_ns);
-        auto now = std::chrono::steady_clock::now();
+        const auto target = wall_start + std::chrono::nanoseconds(target_ns);
+        const auto now = std::chrono::steady_clock::now();
         if (target > now) {
           std::this_thread::sleep_for(target - now);
         }
