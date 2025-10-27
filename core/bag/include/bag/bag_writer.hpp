@@ -32,6 +32,9 @@ public:
   // Record all topics (wildcard). Requires dynamic subscribe_any support.
   void record_all();
 
+  // Stop recording
+  void stop();
+
 private:
   std::string path_;
   std::shared_ptr<Middleware> mw_;

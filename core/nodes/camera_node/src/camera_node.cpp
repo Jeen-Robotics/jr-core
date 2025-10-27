@@ -51,11 +51,17 @@ class CameraNode::Impl {
 public:
   explicit Impl(const int camera_idx)
       : cap_(camera_idx) {
+    cap_.set(cv::CAP_PROP_FOURCC, CV_FOURCC_MACRO('B', 'G', 'R', '3'));
+  }
+
+  bool valid() const {
+    return cap_.isOpened();
   }
 
   void spin_once(const mw::Publisher<sensor_msgs::Image>& pub) {
-    if (!cap_.isOpened())
+    if (!valid()) {
       return;
+    }
 
     cv::Mat frame;
     cap_ >> frame;
@@ -87,7 +93,11 @@ CameraNode::~CameraNode() = default;
 void CameraNode::spin_once() {
   pimpl_->spin_once(pub_);
   // TODO: add fps or delay param to config
-  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+}
+
+bool CameraNode::valid() const noexcept {
+  return Node::valid() && pimpl_->valid();
 }
 
 } // namespace jr

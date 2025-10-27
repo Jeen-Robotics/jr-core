@@ -16,5 +16,15 @@ target_link_libraries(jr_camera_node
     opencv_videoio
 )
 
+if(ANDROID)
+    target_link_libraries(jr_camera_node PRIVATE
+            jr_android
+            android
+            log
+            mediandk
+            camera2ndk
+    )
+endif()
+
 install(TARGETS jr_camera_node DESTINATION lib)
 install(FILES ${INTERFACE_INCLUDE_DIRECTORIES})

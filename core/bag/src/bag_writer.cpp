@@ -178,12 +178,13 @@ void BagWriter::record_topic(const std::string& topic) {
       const std::string& type_name,
       const google::protobuf::Message& msg
     ) {
-      auto now = std::chrono::time_point_cast<std::chrono::nanoseconds>(
-                   std::chrono::system_clock::now()
-      )
-                   .time_since_epoch()
-                   .count();
-      std::uint64_t ts_ns = static_cast<std::uint64_t>(now);
+      const auto ts_ns = static_cast<std::uint64_t>(
+        std::chrono::time_point_cast<std::chrono::nanoseconds>(
+          std::chrono::system_clock::now()
+        )
+          .time_since_epoch()
+          .count()
+      );
 
       // Process image messages
       if (const auto* image_msg =
@@ -235,6 +236,12 @@ void BagWriter::record_all() {
 
   for (const auto& ti : mw_->get_topic_names_and_types()) {
     record_topic(ti.name);
+  }
+}
+
+void BagWriter::stop() {
+  for (auto& sub : active_subs_) {
+    sub.unsubscribe();
   }
 }
 

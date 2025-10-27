@@ -1,7 +1,6 @@
 #pragma once
 
 #include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
 
 #include <jr_imgproc/image.h>
@@ -16,15 +15,15 @@ typedef struct jr_camera_device jr_camera_device_t;
 // Create a new camera device instance
 jr_camera_device_t* jr_camera_device_create();
 
-// Destroy an camera device instance
-void jr_camera_device_destroy(jr_camera_device_t* device);
+// Destroy a camera device instance
+void jr_camera_device_destroy(const jr_camera_device_t* device);
 
 // Get the number of cameras available
-int jr_camera_device_get_number_of_cameras(jr_camera_device_t* device);
+int jr_camera_device_get_number_of_cameras(const jr_camera_device_t* device);
 
 // Open the camera with the given parameters
 bool jr_camera_device_open(
-  jr_camera_device_t* device,
+  const jr_camera_device_t* device,
   int32_t width,
   int32_t height,
   int32_t camera_idx

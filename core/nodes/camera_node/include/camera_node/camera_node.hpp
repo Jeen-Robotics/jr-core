@@ -25,6 +25,8 @@ public:
 
   void spin_once() override;
 
+  bool valid() const noexcept override;
+
 private:
   mw::Publisher<sensor_msgs::Image> pub_;
 

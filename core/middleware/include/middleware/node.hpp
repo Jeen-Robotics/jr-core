@@ -42,7 +42,7 @@ public:
       callback
   ) const;
 
-  bool valid() const noexcept;
+  virtual bool valid() const noexcept;
 
 private:
   std::string node_name_{};

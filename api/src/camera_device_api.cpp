@@ -25,7 +25,8 @@ public:
   }
   void stopStreaming() {
   }
-  void setFrameCallback(std::function<void(const jr_planar_image_t&)> callback
+  void setFrameCallback(
+    std::function<void(const jr_planar_image_t&)> callback
   ) {
   }
   void setSessionReadyCallback(std::function<void()> callback) {
@@ -52,13 +53,13 @@ jr_camera_device_t* jr_camera_device_create() {
   return device;
 }
 
-void jr_camera_device_destroy(jr_camera_device_t* device) {
+void jr_camera_device_destroy(const jr_camera_device_t* device) {
   if (device) {
     delete device;
   }
 }
 
-int jr_camera_device_get_number_of_cameras(jr_camera_device_t* device) {
+int jr_camera_device_get_number_of_cameras(const jr_camera_device_t* device) {
   if (!device || !device->impl) {
     return 0;
   }
@@ -66,10 +67,10 @@ int jr_camera_device_get_number_of_cameras(jr_camera_device_t* device) {
 }
 
 bool jr_camera_device_open(
-  jr_camera_device_t* device,
-  int32_t width,
-  int32_t height,
-  int32_t camera_idx
+  const jr_camera_device_t* device,
+  const int32_t width,
+  const int32_t height,
+  const int32_t camera_idx
 ) {
   if (!device || !device->impl) {
     return false;
@@ -77,27 +78,27 @@ bool jr_camera_device_open(
   return device->impl->open(width, height, camera_idx);
 }
 
-void jr_camera_device_close(jr_camera_device_t* device) {
+void jr_camera_device_close(const jr_camera_device_t* device) {
   if (device && device->impl) {
     device->impl->close();
   }
 }
 
-bool jr_camera_device_start_streaming(jr_camera_device_t* device) {
+bool jr_camera_device_start_streaming(const jr_camera_device_t* device) {
   if (!device || !device->impl) {
     return false;
   }
   return device->impl->startStreaming();
 }
 
-void jr_camera_device_stop_streaming(jr_camera_device_t* device) {
+void jr_camera_device_stop_streaming(const jr_camera_device_t* device) {
   if (device && device->impl) {
     device->impl->stopStreaming();
   }
 }
 
 void jr_camera_device_set_frame_callback(
-  jr_camera_device_t* device,
+  const jr_camera_device_t* device,
   jr_camera_device_frame_callback_t callback,
   void* user_data
 ) {
@@ -118,7 +119,7 @@ void jr_camera_device_set_frame_callback(
 }
 
 void jr_camera_device_set_session_ready_callback(
-  jr_camera_device_t* device,
+  const jr_camera_device_t* device,
   jr_camera_device_void_callback_t callback
 ) {
   if (!device || !device->impl) {
