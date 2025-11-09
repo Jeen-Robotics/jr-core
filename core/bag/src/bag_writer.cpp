@@ -28,6 +28,22 @@ std::string sanitize_topic_name(const std::string& topic) {
   return result;
 }
 
+std::uint64_t now_ns() {
+  return static_cast<std::uint64_t>(
+    std::chrono::time_point_cast<std::chrono::nanoseconds>(
+      std::chrono::system_clock::now()
+    )
+      .time_since_epoch()
+      .count()
+  );
+}
+
+std::string serialize(const google::protobuf::Message& msg) {
+  std::string res;
+  msg.SerializeToString(&res);
+  return res;
+}
+
 } // namespace
 
 namespace jr::mw {
@@ -46,10 +62,6 @@ BagWriter::~BagWriter() {
   close();
 }
 
-void BagWriter::set_video_config(VideoEncoderConfig config) {
-  video_config_ = std::move(config);
-}
-
 bool BagWriter::open() {
   std::lock_guard lock(out_mutex_);
 
@@ -66,8 +78,7 @@ bool BagWriter::open() {
     header.set_format_id("JR_BAG");
     header.set_compression(COMPRESSION_ZSTD);
 
-    std::string header_data;
-    header.SerializeToString(&header_data);
+    const auto header_data = serialize(header);
 
     // Write header size followed by header data
     const auto header_size = static_cast<uint32_t>(header_data.size());
@@ -86,7 +97,7 @@ void BagWriter::close() {
   // Close all video encoders (flushes data to video files)
   video_encoders_.clear();
 
-  std::lock_guard<std::mutex> lock(out_mutex_);
+  std::lock_guard lock(out_mutex_);
 
   active_subs_.clear();
   if (out_.is_open()) {
@@ -94,21 +105,83 @@ void BagWriter::close() {
   }
 }
 
-std::string BagWriter::get_video_path_for_topic(
-  const std::string& topic
-) const {
-  // Extract bag directory and base name
-  const std::filesystem::path bag_path(path_);
-  const auto bag_dir = bag_path.parent_path();
-  const auto bag_base = bag_path.stem().string(); // filename without extension
+void BagWriter::set_video_config(VideoEncoderConfig config) {
+  video_config_ = std::move(config);
+}
 
-  // Create video filename: bag-name_topic.avi
-  const auto sanitized_topic = sanitize_topic_name(topic);
-  const auto video_filename = bag_base + "_" + sanitized_topic + ".avi";
+void BagWriter::record_topic(const std::string& topic) {
+  if (!mw_) {
+    return;
+  }
 
-  // Full path to a video file
-  const auto video_path = bag_dir / video_filename;
-  return video_path.string();
+  open();
+
+  auto sub = mw_->subscribe_any(
+    topic,
+    [this, topic](
+      const std::string& type_name,
+      const google::protobuf::Message& msg
+    ) {
+      const auto ts_ns = now_ns();
+
+      // Process image messages
+      if (const auto* image_msg =
+            dynamic_cast<const sensor_msgs::Image*>(&msg)) {
+        // Get or create video encoder for this topic
+        auto& encoder = video_encoders_[topic];
+        if (!encoder) {
+          std::string video_path = get_video_path_for_topic(topic);
+          encoder =
+            std::make_unique<VideoEncoder>(topic, video_path, video_config_);
+        }
+
+        // Add frame to encoder and write reference immediately
+        if (auto frame_ref = encoder->add_frame(*image_msg)) {
+          // Create VideoFrameReference protobuf message
+          VideoFrameReference ref_msg;
+          ref_msg.set_topic(frame_ref->topic);
+          ref_msg.set_video_file(frame_ref->video_file);
+          ref_msg.set_frame_index(frame_ref->frame_index);
+          ref_msg.set_width(frame_ref->width);
+          ref_msg.set_height(frame_ref->height);
+          ref_msg.set_encoding(frame_ref->encoding);
+          ref_msg.set_seq(frame_ref->seq);
+
+          // Write frame reference to bag
+          write_record(
+            topic,
+            "jr.mw.VideoFrameReference",
+            serialize(ref_msg),
+            ts_ns
+          );
+        }
+        return;
+      }
+
+      // Regular message - serialize and write
+      write_record(topic, type_name, serialize(msg), ts_ns);
+    }
+  );
+
+  active_subs_.emplace_back(std::move(sub));
+}
+
+void BagWriter::record_all() {
+  if (!mw_) {
+    return;
+  }
+
+  open();
+
+  for (const auto& ti : mw_->get_topic_names_and_types()) {
+    record_topic(ti.name);
+  }
+}
+
+void BagWriter::stop() {
+  for (auto& sub : active_subs_) {
+    sub.unsubscribe();
+  }
 }
 
 void BagWriter::write_record(
@@ -131,8 +204,7 @@ void BagWriter::write_record(
   record.set_timestamp_ns(ts_ns);
 
   // Serialize record
-  std::string record_data;
-  record.SerializeToString(&record_data);
+  const auto record_data = serialize(record);
 
   // Compress record with zstd
   size_t const compressed_bound = ZSTD_compressBound(record_data.size());
@@ -165,84 +237,21 @@ void BagWriter::write_record(
   out_.write(compressed_data.data(), compressed_data.size());
 }
 
-void BagWriter::record_topic(const std::string& topic) {
-  if (!mw_) {
-    return;
-  }
+std::string BagWriter::get_video_path_for_topic(
+  const std::string& topic
+) const {
+  // Extract bag directory and base name
+  const std::filesystem::path bag_path(path_);
+  const auto bag_dir = bag_path.parent_path();
+  const auto bag_base = bag_path.stem().string(); // filename without extension
 
-  open();
+  // Create video filename: bag-name_topic.avi
+  const auto sanitized_topic = sanitize_topic_name(topic);
+  const auto video_filename = bag_base + "_" + sanitized_topic + ".avi";
 
-  auto sub = mw_->subscribe_any(
-    topic,
-    [this, topic](
-      const std::string& type_name,
-      const google::protobuf::Message& msg
-    ) {
-      const auto ts_ns = static_cast<std::uint64_t>(
-        std::chrono::time_point_cast<std::chrono::nanoseconds>(
-          std::chrono::system_clock::now()
-        )
-          .time_since_epoch()
-          .count()
-      );
-
-      // Process image messages
-      if (const auto* image_msg =
-            dynamic_cast<const sensor_msgs::Image*>(&msg)) {
-        // Get or create video encoder for this topic
-        auto& encoder = video_encoders_[topic];
-        if (!encoder) {
-          std::string video_path = get_video_path_for_topic(topic);
-          encoder =
-            std::make_unique<VideoEncoder>(topic, video_path, video_config_);
-        }
-
-        // Add frame to encoder and write reference immediately
-        if (auto frame_ref = encoder->add_frame(*image_msg)) {
-          // Create VideoFrameReference protobuf message
-          VideoFrameReference ref_msg;
-          ref_msg.set_topic(frame_ref->topic);
-          ref_msg.set_video_file(frame_ref->video_file);
-          ref_msg.set_frame_index(frame_ref->frame_index);
-          ref_msg.set_width(frame_ref->width);
-          ref_msg.set_height(frame_ref->height);
-          ref_msg.set_encoding(frame_ref->encoding);
-          ref_msg.set_seq(frame_ref->seq);
-
-          // Write frame reference to bag
-          std::string payload;
-          ref_msg.SerializeToString(&payload);
-          write_record(topic, "jr.mw.VideoFrameReference", payload, ts_ns);
-        }
-        return;
-      }
-
-      // Regular message - serialize and write
-      std::string payload;
-      msg.SerializeToString(&payload);
-      write_record(topic, type_name, payload, ts_ns);
-    }
-  );
-
-  active_subs_.push_back(std::move(sub));
-}
-
-void BagWriter::record_all() {
-  if (!mw_) {
-    return;
-  }
-
-  open();
-
-  for (const auto& ti : mw_->get_topic_names_and_types()) {
-    record_topic(ti.name);
-  }
-}
-
-void BagWriter::stop() {
-  for (auto& sub : active_subs_) {
-    sub.unsubscribe();
-  }
+  // Full path to a video file
+  const auto video_path = bag_dir / video_filename;
+  return video_path.string();
 }
 
 } // namespace jr::mw
