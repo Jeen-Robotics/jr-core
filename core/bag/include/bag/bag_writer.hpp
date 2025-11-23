@@ -3,11 +3,17 @@
 #include <bag/video_encoder_config.hpp>
 
 #include <cstdint>
-#include <fstream>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
+
+namespace google {
+namespace protobuf {
+class Message;
+}
+} // namespace google
 
 namespace jr::mw {
 
@@ -36,11 +42,15 @@ public:
   void stop();
 
 private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+
   std::string path_;
   std::shared_ptr<Middleware> mw_;
-  std::ofstream out_;
   std::mutex out_mutex_;
   std::vector<class Subscription> active_subs_;
+
+  bool is_open_ = false;
 
   // Video encoding state
   VideoEncoderConfig video_config_;
@@ -48,8 +58,7 @@ private:
 
   void write_record(
     const std::string& topic,
-    const std::string& type_full_name,
-    const std::string& payload,
+    const google::protobuf::Message& msg,
     std::uint64_t ts_ns
   );
 

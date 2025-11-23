@@ -1,14 +1,20 @@
 #include "bag/bag_writer.hpp"
 
-#include <zstd.h>
+#define MCAP_IMPLEMENTATION
+#include <mcap/mcap.hpp>
 
-#include <bag.pb.h>
+#include <google/protobuf/descriptor.h>
+#include <google/protobuf/descriptor.pb.h>
+#include <google/protobuf/message.h>
 #include <middleware/middleware.hpp>
 #include <sensor_msgs.pb.h>
 
 #include <chrono>
 #include <filesystem>
+#include <queue>
+#include <unordered_set>
 
+#include "bag.pb.h"
 #include "video_encoder.hpp"
 
 namespace {
@@ -44,17 +50,48 @@ std::string serialize(const google::protobuf::Message& msg) {
   return res;
 }
 
+google::protobuf::FileDescriptorSet build_file_descriptor_set(
+  const google::protobuf::Descriptor* toplevelDescriptor
+) {
+  google::protobuf::FileDescriptorSet fdSet;
+  std::queue<const google::protobuf::FileDescriptor*> toAdd;
+  toAdd.push(toplevelDescriptor->file());
+  std::unordered_set<std::string> seenDependencies;
+  while (!toAdd.empty()) {
+    const google::protobuf::FileDescriptor* next = toAdd.front();
+    toAdd.pop();
+    next->CopyTo(fdSet.add_file());
+    for (int i = 0; i < next->dependency_count(); ++i) {
+      const auto& dep = next->dependency(i);
+      if (seenDependencies.find(dep->name()) == seenDependencies.end()) {
+        seenDependencies.insert(dep->name());
+        toAdd.push(dep);
+      }
+    }
+  }
+  return fdSet;
+}
+
 } // namespace
 
 namespace jr::mw {
 
+class BagWriter::Impl {
+public:
+  mcap::McapWriter writer;
+  std::map<std::string, mcap::SchemaId> schema_ids;
+  std::map<std::string, mcap::ChannelId> channel_ids;
+};
+
 BagWriter::BagWriter(const std::string& path)
-    : path_(path)
+    : impl_(std::make_unique<Impl>())
+    , path_(path)
     , mw_(get()) {
 }
 
 BagWriter::BagWriter(const std::string& path, std::shared_ptr<Middleware> mw)
-    : path_(path)
+    : impl_(std::make_unique<Impl>())
+    , path_(path)
     , mw_(std::move(mw)) {
 }
 
@@ -65,32 +102,15 @@ BagWriter::~BagWriter() {
 bool BagWriter::open() {
   std::lock_guard lock(out_mutex_);
 
-  if (out_.is_open()) {
+  if (is_open_) {
     return true;
   }
 
-  out_.open(path_, std::ios::binary | std::ios::out | std::ios::trunc);
+  mcap::McapWriterOptions options("");
+  auto res = impl_->writer.open(path_, options);
+  is_open_ = res.ok();
 
-  if (out_.is_open()) {
-    // Write protobuf header
-    BagHeader header;
-    header.set_version(2); // Version 2 with compression support
-    header.set_format_id("JR_BAG");
-    header.set_compression(COMPRESSION_ZSTD);
-
-    const auto header_data = serialize(header);
-
-    // Write header size followed by header data
-    const auto header_size = static_cast<uint32_t>(header_data.size());
-    out_.write(
-      reinterpret_cast<const char*>(&header_size),
-      sizeof(header_size)
-    );
-    out_.write(header_data.data(), header_data.size());
-    out_.flush();
-  }
-
-  return out_.is_open();
+  return is_open_;
 }
 
 void BagWriter::close() {
@@ -100,8 +120,9 @@ void BagWriter::close() {
   std::lock_guard lock(out_mutex_);
 
   active_subs_.clear();
-  if (out_.is_open()) {
-    out_.close();
+  if (is_open_) {
+    impl_->writer.close();
+    is_open_ = false;
   }
 }
 
@@ -148,18 +169,13 @@ void BagWriter::record_topic(const std::string& topic) {
           ref_msg.set_seq(frame_ref->seq);
 
           // Write frame reference to bag
-          write_record(
-            topic,
-            "jr.mw.VideoFrameReference",
-            serialize(ref_msg),
-            ts_ns
-          );
+          write_record(topic, ref_msg, ts_ns);
         }
         return;
       }
 
       // Regular message - serialize and write
-      write_record(topic, type_name, serialize(msg), ts_ns);
+      write_record(topic, msg, ts_ns);
     }
   );
 
@@ -186,59 +202,57 @@ void BagWriter::stop() {
 
 void BagWriter::write_record(
   const std::string& topic,
-  const std::string& type_full_name,
-  const std::string& payload,
-  const std::uint64_t ts_ns
+  const google::protobuf::Message& msg,
+  std::uint64_t ts_ns
 ) {
   std::lock_guard lock(out_mutex_);
 
-  if (!out_.is_open()) {
+  if (!is_open_) {
     return;
   }
 
-  // Create protobuf record
-  BagRecord record;
-  record.set_topic(topic);
-  record.set_type_full_name(type_full_name);
-  record.set_payload(payload);
-  record.set_timestamp_ns(ts_ns);
+  // Check if we have a schema for this type
+  const auto* descriptor = msg.GetDescriptor();
+  std::string type_full_name = descriptor->full_name();
 
-  // Serialize record
-  const auto record_data = serialize(record);
-
-  // Compress record with zstd
-  size_t const compressed_bound = ZSTD_compressBound(record_data.size());
-  std::string compressed_data(compressed_bound, '\0');
-
-  size_t const compressed_size = ZSTD_compress(
-    compressed_data.data(),
-    compressed_bound,
-    record_data.data(),
-    record_data.size(),
-    3 // Compression level: 3 is a good balance of speed and ratio
-  );
-
-  if (ZSTD_isError(compressed_size)) {
-    // If compression fails, write uncompressed (shouldn't happen)
-    const auto record_size = static_cast<uint32_t>(record_data.size());
-    out_.write(
-      reinterpret_cast<const char*>(&record_size),
-      sizeof(record_size)
+  if (impl_->schema_ids.find(type_full_name) == impl_->schema_ids.end()) {
+    // Register schema
+    mcap::Schema schema(
+      type_full_name,
+      "protobuf",
+      build_file_descriptor_set(descriptor).SerializeAsString()
     );
-    out_.write(record_data.data(), record_data.size());
-    return;
+    impl_->writer.addSchema(schema);
+    impl_->schema_ids[type_full_name] = schema.id;
   }
 
-  compressed_data.resize(compressed_size);
+  // Check if we have a channel for this topic
+  if (impl_->channel_ids.find(topic) == impl_->channel_ids.end()) {
+    // Register channel
+    mcap::Channel channel(topic, "protobuf", impl_->schema_ids[type_full_name]);
+    impl_->writer.addChannel(channel);
+    impl_->channel_ids[topic] = channel.id;
+  }
 
-  // Write compressed record size followed by compressed data
-  const auto record_size = static_cast<uint32_t>(compressed_data.size());
-  out_.write(reinterpret_cast<const char*>(&record_size), sizeof(record_size));
-  out_.write(compressed_data.data(), compressed_data.size());
+  // Write message
+  std::string serialized;
+  msg.SerializeToString(&serialized);
+
+  mcap::Message mcap_msg;
+  mcap_msg.channelId = impl_->channel_ids[topic];
+  mcap_msg.sequence = 0; // Optional: keep track of sequence if needed
+  mcap_msg.logTime = ts_ns;
+  mcap_msg.publishTime = ts_ns;
+  mcap_msg.data = reinterpret_cast<const std::byte*>(serialized.data());
+  mcap_msg.dataSize = serialized.size();
+
+  const auto res = impl_->writer.write(mcap_msg);
+  if (!res.ok()) {
+    std::cerr << "Error writing message to bag: " << res.message << '\n';
+  }
 }
 
-std::string BagWriter::get_video_path_for_topic(
-  const std::string& topic
+std::string BagWriter::get_video_path_for_topic(const std::string& topic
 ) const {
   // Extract bag directory and base name
   const std::filesystem::path bag_path(path_);

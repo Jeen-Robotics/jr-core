@@ -1,5 +1,5 @@
 find_package(protobuf CONFIG REQUIRED)
-find_package(zstd CONFIG REQUIRED)
+find_package(mcap CONFIG REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio)
 find_package(jr_msgs CONFIG REQUIRED)
 
@@ -42,7 +42,7 @@ target_link_libraries(jr_bag
         jr_middleware 
         jr_msgs::jr_msgs
         protobuf::libprotobuf 
-        zstd::libzstd_static
+        mcap::mcap
         opencv_core
         opencv_imgproc
         opencv_videoio

@@ -9,6 +9,7 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include <filesystem>
 #include <mutex>
 #include <thread>
 
@@ -154,7 +155,7 @@ private:
   jr::mw::Subscription sub_gray_;
 };
 
-#define WRITE_MODE 1
+#define WRITE_MODE 0
 int main() {
   jr::mw::init();
 
@@ -168,7 +169,7 @@ int main() {
 #endif
 
 #if WRITE_MODE
-  jr::mw::BagWriter bag_writer("camera_test.bag");
+  jr::mw::BagWriter bag_writer("camera_test.mcap");
 
   // Optional: Configure video encoding parameters
   // jr::mw::VideoEncoderConfig video_config;
@@ -176,7 +177,12 @@ int main() {
   // video_config.fps = 30.0;
   // bag_writer.set_video_config(video_config);
 #else
-  jr::mw::BagReader bag_reader("camera_test.bag");
+  const std::string bag_path = "camera_test.mcap";
+  if (!std::filesystem::exists(bag_path)) {
+    std::cerr << "Bag file does not exist" << std::endl;
+    return 1;
+  }
+  jr::mw::BagReader bag_reader(bag_path);
 #endif
 
   // TODO:
