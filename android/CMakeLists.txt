@@ -1,5 +1,6 @@
 add_library(jr_android
     src/camera_device.cpp
+    src/imu_device.cpp
 )
 
 # Add include directories

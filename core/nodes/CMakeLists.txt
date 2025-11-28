@@ -1,1 +1,2 @@
 add_subdirectory(camera_node)
+add_subdirectory(imu_node)

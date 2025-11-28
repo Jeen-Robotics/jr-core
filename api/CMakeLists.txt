@@ -21,6 +21,7 @@ target_link_libraries(jr_api
     jr_bag
     jr_middleware
     jr_camera_node
+    jr_imu_node
     jr_msgs::jr_msgs
 )
 

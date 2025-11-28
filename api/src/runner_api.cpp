@@ -2,6 +2,7 @@
 
 #include <bag/bag_writer.hpp>
 #include <camera_node/camera_node.hpp>
+#include <imu_node/imu_node.hpp>
 #include <middleware/middleware.hpp>
 
 #include <chrono>
@@ -52,6 +53,13 @@ void init() {
       }
     }
 
+    // Add IMU node
+    const auto imu_node =
+      std::make_shared<jr::ImuNode>("imu", jr::ImuNode::Config{"/imu"});
+    if (imu_node->valid()) {
+      nodes.emplace_back(imu_node);
+    }
+
     jr::mw::spin(nodes);
   });
 }
@@ -64,12 +72,10 @@ void start_recording(const char* save_directory) {
   const auto filename = bag_name + ".mcap";
   const auto file_path = bag_path / filename;
   get().writer = std::make_unique<jr::mw::BagWriter>(file_path.string());
-  get().writer->set_video_config(
-    jr::mw::VideoEncoderConfig{
-      .codec = jr::mw::VideoEncoderConfig::Codec::MJPEG,
-      .fps = 10,
-    }
-  );
+  get().writer->set_video_config(jr::mw::VideoEncoderConfig{
+    .codec = jr::mw::VideoEncoderConfig::Codec::MJPEG,
+    .fps = 10,
+  });
   get().writer->record_all();
 }
 
