@@ -1,6 +1,5 @@
 #include "bag/bag_reader.hpp"
 
-#define MCAP_IMPLEMENTATION
 #include <mcap/mcap.hpp>
 
 #include <bag.pb.h>

@@ -1,7 +1,10 @@
 find_package(jr_msgs CONFIG REQUIRED)
 find_package(OpenCV REQUIRED)
 
-add_library(jr_camera_node src/camera_node.cpp)
+add_library(jr_camera_node
+    src/camera_node.cpp
+    src/calibration_extractor.cpp
+)
 
 target_include_directories(jr_camera_node PUBLIC include/)
 

@@ -28,7 +28,7 @@ std::string get_time_string() {
   const auto now_c = std::chrono::system_clock::to_time_t(now);
   const auto time = *std::localtime(&now_c);
   char buf[64];
-  std::strftime(buf, sizeof(buf), "%d%m%Y_%H%M%S", &time);
+  std::strftime(buf, sizeof(buf), "%Y%m%d_%H%M%S", &time);
   return std::string(buf);
 }
 
@@ -61,7 +61,7 @@ void start_recording(const char* save_directory) {
   const auto bag_path = std::filesystem::path(save_directory) / bag_name;
   std::filesystem::create_directory(bag_path);
 
-  const auto filename = bag_name + ".bag";
+  const auto filename = bag_name + ".mcap";
   const auto file_path = bag_path / filename;
   get().writer = std::make_unique<jr::mw::BagWriter>(file_path.string());
   get().writer->set_video_config(
