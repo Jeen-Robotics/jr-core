@@ -14,6 +14,17 @@ if(BUILD_TESTS)
     find_package(GTest REQUIRED)
 endif()
 
+# ReRun visualization SDK (uses Arrow from Conan)
+if(BUILD_SANDBOX AND NOT ANDROID)
+    set(RERUN_DOWNLOAD_AND_BUILD_ARROW OFF CACHE BOOL "Use system Arrow")
+    find_package(Arrow REQUIRED)
+    
+    include(FetchContent)
+    FetchContent_Declare(rerun_sdk URL
+        https://github.com/rerun-io/rerun/releases/latest/download/rerun_cpp_sdk.zip)
+    FetchContent_MakeAvailable(rerun_sdk)
+endif()
+
 add_subdirectory(api)
 add_subdirectory(core)
 
