@@ -45,18 +45,32 @@ pub mod middleware;
 pub mod topic;
 
 /// Generated protobuf message types (compatible with C++ protobuf wire format)
+/// 
+/// Proto definitions come from jr-msgs submodule (shared with C++).
+/// Only bag.proto is middleware-specific and kept locally.
 pub mod proto {
-    /// Standard messages (Header, Vector3, Quaternion)
+    /// Standard messages (Header, Time, Duration)
     pub mod std_msgs {
         include!(concat!(env!("OUT_DIR"), "/std_msgs.rs"));
     }
     
+    /// Geometry messages (Vector3, Point, Quaternion, Transform, etc.)
+    pub mod geometry_msgs {
+        include!(concat!(env!("OUT_DIR"), "/geometry_msgs.rs"));
+    }
+    
     /// Sensor messages (Image, Imu, CameraInfo)
+    /// Uses types from std_msgs and geometry_msgs
     pub mod sensor_msgs {
+        // Re-export dependencies for generated code
+        pub use super::std_msgs;
+        pub use super::geometry_msgs;
+        
         include!(concat!(env!("OUT_DIR"), "/sensor_msgs.rs"));
     }
     
     /// Bag messages (BagHeader, BagRecord, VideoFrameReference)
+    /// Middleware-specific, not from jr-msgs
     pub mod jr {
         pub mod mw {
             include!(concat!(env!("OUT_DIR"), "/jr.mw.rs"));
