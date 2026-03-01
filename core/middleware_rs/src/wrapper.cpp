@@ -37,6 +37,15 @@ struct SubscriberImpl {
     {}
 };
 
+// Custom deleters for pimpl (used by unique_ptr)
+void delete_publisher_impl(PublisherImpl* p) {
+    delete p;
+}
+
+void delete_subscriber_impl(SubscriberImpl* p) {
+    delete p;
+}
+
 } // namespace detail
 
 // ============================================================================
@@ -68,7 +77,7 @@ PublisherPtr create_publisher_impl(
 ) {
     auto ffi_qos = static_cast<::jr::mw::QosKind>(qos);
     auto box = ::jr::mw::create_publisher(topic, ffi_qos, capacity);
-    return std::make_unique<PublisherImpl>(std::move(box));
+    return PublisherPtr(new PublisherImpl(std::move(box)));
 }
 
 bool publish_impl(PublisherImpl* impl, const void* data, std::size_t len) {
@@ -99,7 +108,7 @@ SubscriberPtr create_subscriber_impl(
 ) {
     auto ffi_qos = static_cast<::jr::mw::QosKind>(qos);
     auto box = ::jr::mw::create_subscriber(topic, ffi_qos, capacity);
-    return std::make_unique<SubscriberImpl>(std::move(box));
+    return SubscriberPtr(new SubscriberImpl(std::move(box)));
 }
 
 bool subscriber_valid_impl(const SubscriberImpl* impl) {

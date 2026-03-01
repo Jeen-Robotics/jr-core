@@ -34,6 +34,7 @@ class Publisher {
 
 public:
     Publisher() = default;
+    ~Publisher() = default;
     
     /// Move constructor
     Publisher(Publisher&&) noexcept = default;

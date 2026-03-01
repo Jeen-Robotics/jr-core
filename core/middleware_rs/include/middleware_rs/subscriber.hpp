@@ -51,6 +51,7 @@ public:
     using Callback = std::function<void(const ProtoT&)>;
 
     Subscriber() = default;
+    ~Subscriber() = default;
     
     /// Move constructor
     Subscriber(Subscriber&&) noexcept = default;

@@ -23,10 +23,28 @@ enum class Qos : std::uint8_t {
 namespace detail {
 struct PublisherImpl;
 struct SubscriberImpl;
+
+/// Deleters for pimpl unique_ptrs (defined in wrapper.cpp)
+void delete_publisher_impl(PublisherImpl* p);
+void delete_subscriber_impl(SubscriberImpl* p);
 } // namespace detail
 
-// Shared pointer deleters
-using PublisherPtr = std::unique_ptr<detail::PublisherImpl>;
-using SubscriberPtr = std::unique_ptr<detail::SubscriberImpl>;
+/// Custom deleter for Publisher pimpl
+struct PublisherDeleter {
+    void operator()(detail::PublisherImpl* p) const noexcept {
+        detail::delete_publisher_impl(p);
+    }
+};
+
+/// Custom deleter for Subscriber pimpl
+struct SubscriberDeleter {
+    void operator()(detail::SubscriberImpl* p) const noexcept {
+        detail::delete_subscriber_impl(p);
+    }
+};
+
+// Unique pointers with custom deleters
+using PublisherPtr = std::unique_ptr<detail::PublisherImpl, PublisherDeleter>;
+using SubscriberPtr = std::unique_ptr<detail::SubscriberImpl, SubscriberDeleter>;
 
 } // namespace jr::mw::rust
