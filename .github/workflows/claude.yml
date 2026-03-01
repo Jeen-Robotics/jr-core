@@ -39,6 +39,8 @@ jobs:
           use_sticky_comment: true
           additional_permissions: |
             actions: read
+          claude_args: |
+            --allowed-tools "Bash(gh pr:*)" "Bash(gh issue:*)" "Read" "Write"
           prompt: |
             Review this pull request. Focus on:
             1. Code quality and best practices
@@ -46,7 +48,7 @@ jobs:
             3. Performance considerations
             4. Documentation completeness
             
-            Post your review as a PR comment.
+            Post your review as a PR comment using `gh pr comment`.
 
   # Manual @claude trigger job
   claude-mention:
