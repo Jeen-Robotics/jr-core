@@ -1,8 +1,8 @@
 //! Build script for middleware_rs
 //!
-//! Generates Rust types from .proto files using prost-build.
-//! All proto definitions come from jr-msgs submodule (shared with C++).
-//! CXX bridge generation will be added in Phase 2.
+//! Generates:
+//! - Rust types from .proto files using prost-build
+//! - C++ headers and sources from CXX bridge definitions
 
 use std::path::PathBuf;
 
@@ -19,14 +19,20 @@ fn main() {
         jr_msgs_path.join("bag.proto"),
     ];
 
-    // Rerun if any proto file changes (not directory - Cargo doesn't watch recursively)
+    // Rerun if any proto file changes
     for proto in &proto_files {
         println!("cargo:rerun-if-changed={}", proto.display());
     }
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=src/ffi/bridge.rs");
 
-    // Compile protos (out_dir defaults to OUT_DIR, no need to set explicitly)
+    // Compile protos
     prost_build::Config::new()
         .compile_protos(&proto_files, &[&jr_msgs_path])
         .expect("Failed to compile proto files");
+
+    // Compile CXX bridge
+    cxx_build::bridge("src/ffi/bridge.rs")
+        .std("c++17")
+        .compile("middleware_rs_cxx");
 }

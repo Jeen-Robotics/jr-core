@@ -44,6 +44,9 @@
 pub mod middleware;
 pub mod topic;
 
+/// FFI module for C++ interop via CXX
+pub mod ffi;
+
 /// Generated protobuf message types (compatible with C++ protobuf wire format)
 /// 
 /// Proto definitions come from jr-msgs submodule (shared with C++).

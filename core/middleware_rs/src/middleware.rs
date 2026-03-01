@@ -277,6 +277,28 @@ impl Middleware {
     pub fn topic_names(&self) -> Vec<String> {
         self.topics.topic_names()
     }
+
+    /// Subscribe to a topic with raw bytes type (for FFI)
+    ///
+    /// Returns the underlying broadcast receiver for polling-based FFI use.
+    pub(crate) fn subscribe_raw(
+        &self,
+        topic: &str,
+        qos: Qos,
+    ) -> Option<tokio::sync::broadcast::Receiver<std::sync::Arc<Vec<u8>>>> {
+        self.topics.subscribe_with_qos::<Vec<u8>>(topic, qos)
+    }
+
+    /// Get or create a sender for raw bytes type (for FFI)
+    ///
+    /// Returns the underlying broadcast sender for cached publishing.
+    pub(crate) fn get_or_create_sender_raw(
+        &self,
+        topic: &str,
+        qos: Qos,
+    ) -> Option<tokio::sync::broadcast::Sender<std::sync::Arc<Vec<u8>>>> {
+        self.topics.get_or_create_sender_with_qos::<Vec<u8>>(topic, qos)
+    }
 }
 
 impl Default for Middleware {

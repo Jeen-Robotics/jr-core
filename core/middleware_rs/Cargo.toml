@@ -20,14 +20,21 @@ dashmap = "6"
 # prost-types only needed for google.protobuf.* well-known types (not used)
 prost = "0.13"
 
-# FFI (will be used in Phase 2)
-# cxx = "1.0"
+# FFI for C++ interop
+cxx = "1.0"
 
-# Logging (will be used in Phase 2)
+# Global middleware instance
+once_cell = "1.19"
+
+# eventfd for efficient C++ notification (Linux)
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
+# Logging (will be used later)
 # tracing = "0.1"
 
 [build-dependencies]
-# cxx-build = "1.0"  # Will be enabled in Phase 2
+cxx-build = "1.0"
 prost-build = "0.13"
 
 [dev-dependencies]
