@@ -8,10 +8,22 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(BUILD_SANDBOX "Build sandbox" ON)
 option(BUILD_TESTS "Build tests" OFF)
+option(BUILD_RUST_MIDDLEWARE "Build Rust middleware" OFF)
 
 if(BUILD_TESTS)
     enable_testing()
     find_package(GTest REQUIRED)
+endif()
+
+# Corrosion for Rust integration
+if(BUILD_RUST_MIDDLEWARE)
+    include(FetchContent)
+    FetchContent_Declare(
+        Corrosion
+        GIT_REPOSITORY https://github.com/corrosion-rs/corrosion.git
+        GIT_TAG 54360e2dbaa5a39de339641e3d0f94e24ca3e551  # v0.6
+    )
+    FetchContent_MakeAvailable(Corrosion)
 endif()
 
 # ReRun visualization SDK (uses Arrow from Conan)

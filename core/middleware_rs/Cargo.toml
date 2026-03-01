@@ -1,0 +1,34 @@
+[package]
+name = "middleware_rs"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Rust pub/sub middleware with zero-copy inter-thread communication"
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time"] }
+
+# Concurrent collections
+dashmap = "6"
+
+# Protobuf (compatible with C++ protobuf wire format)
+# prost compiles `bytes` fields to Vec<u8> by default
+# prost-types only needed for google.protobuf.* well-known types (not used)
+prost = "0.13"
+
+# FFI (will be used in Phase 2)
+# cxx = "1.0"
+
+# Logging (will be used in Phase 2)
+# tracing = "0.1"
+
+[build-dependencies]
+# cxx-build = "1.0"  # Will be enabled in Phase 2
+prost-build = "0.13"
+
+[dev-dependencies]
+tokio-test = "0.4"

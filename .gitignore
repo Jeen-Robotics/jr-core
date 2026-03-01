@@ -1,5 +1,9 @@
 .idea
 .cache
 .DS_Store
-build*
+build/
 CMakeUserPresets.json
+# Rust build artifacts
+core/middleware_rs/target/
+core/middleware_rs/Cargo.lock
+target/

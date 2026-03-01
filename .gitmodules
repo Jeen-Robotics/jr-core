@@ -1,0 +1,3 @@
+[submodule "external/jr-msgs"]
+	path = external/jr-msgs
+	url = git@github.com:Jeen-Robotics/jr-msgs.git
