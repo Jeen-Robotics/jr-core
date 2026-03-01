@@ -278,13 +278,28 @@ impl Middleware {
         self.topics.topic_names()
     }
 
-    /// Get access to the underlying TopicRegistry
+    /// Subscribe to a topic with raw bytes type (for FFI)
     ///
-    /// This is primarily for FFI use cases where direct access to
-    /// the registry is needed. Not intended for general use.
+    /// Returns the underlying broadcast receiver for polling-based FFI use.
     #[doc(hidden)]
-    pub fn topics(&self) -> &TopicRegistry {
-        &self.topics
+    pub fn subscribe_raw(
+        &self,
+        topic: &str,
+        qos: Qos,
+    ) -> Option<tokio::sync::broadcast::Receiver<std::sync::Arc<Vec<u8>>>> {
+        self.topics.subscribe_with_qos::<Vec<u8>>(topic, qos)
+    }
+
+    /// Get or create a sender for raw bytes type (for FFI)
+    ///
+    /// Returns the underlying broadcast sender for cached publishing.
+    #[doc(hidden)]
+    pub fn get_or_create_sender_raw(
+        &self,
+        topic: &str,
+        qos: Qos,
+    ) -> Option<tokio::sync::broadcast::Sender<std::sync::Arc<Vec<u8>>>> {
+        self.topics.get_or_create_sender_with_qos::<Vec<u8>>(topic, qos)
     }
 }
 
