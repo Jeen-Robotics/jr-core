@@ -9,7 +9,7 @@
 #include <poll.h>
 #endif
 
-#include <google/protobuf/message.h>
+#include <google/protobuf/message_lite.h>
 
 #include <chrono>
 #include <optional>
@@ -43,8 +43,8 @@ RecvResult subscriber_recv_impl(SubscriberImpl* impl);
 template <typename ProtoT>
 class Subscriber {
     static_assert(
-        std::is_base_of_v<google::protobuf::Message, ProtoT>,
-        "ProtoT must derive from google::protobuf::Message"
+        std::is_base_of_v<google::protobuf::MessageLite, ProtoT>,
+        "ProtoT must derive from google::protobuf::MessageLite"
     );
 
 public:
@@ -81,8 +81,7 @@ public:
         if (!msg.ParseFromArray(result.data.data(), static_cast<int>(result.data.size()))) {
             return std::nullopt;  // Parse failed
         }
-        
-        return msg;
+        return {std::move(msg)};
     }
 
     /// Process one message if available, invoking the callback

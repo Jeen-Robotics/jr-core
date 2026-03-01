@@ -5,7 +5,7 @@
 
 #include <middleware_rs/fwd.hpp>
 
-#include <google/protobuf/message.h>
+#include <google/protobuf/message_lite.h>
 
 #include <string>
 #include <type_traits>
@@ -28,8 +28,8 @@ bool publisher_valid_impl(const PublisherImpl* impl);
 template <typename ProtoT>
 class Publisher {
     static_assert(
-        std::is_base_of_v<google::protobuf::Message, ProtoT>,
-        "ProtoT must derive from google::protobuf::Message"
+        std::is_base_of_v<google::protobuf::MessageLite, ProtoT>,
+        "ProtoT must derive from google::protobuf::MessageLite"
     );
 
 public:

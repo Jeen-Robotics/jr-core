@@ -57,11 +57,13 @@ bool init() {
 }
 
 bool topic_exists(const std::string& topic) {
-    return ::jr::mw::topic_exists(topic);
+    ::rust::Str rust_topic(topic.data(), topic.size());
+    return ::jr::mw::topic_exists(rust_topic);
 }
 
 std::size_t subscriber_count(const std::string& topic) {
-    return ::jr::mw::subscriber_count(topic);
+    ::rust::Str rust_topic(topic.data(), topic.size());
+    return ::jr::mw::subscriber_count(rust_topic);
 }
 
 // ============================================================================

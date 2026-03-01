@@ -21,7 +21,7 @@ if(BUILD_RUST_MIDDLEWARE)
     FetchContent_Declare(
         Corrosion
         GIT_REPOSITORY https://github.com/corrosion-rs/corrosion.git
-        GIT_TAG 54360e2dbaa5a39de339641e3d0f94e24ca3e551  # v0.6
+        GIT_TAG v0.5.1
     )
     FetchContent_MakeAvailable(Corrosion)
 endif()
