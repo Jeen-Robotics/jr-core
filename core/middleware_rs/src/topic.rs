@@ -7,6 +7,17 @@ use dashmap::DashMap;
 use tokio::sync::broadcast;
 
 /// Default channel capacity for broadcast channels
+///
+/// TODO: Make configurable via QoS (Quality of Service) mechanism.
+/// For realtime robotics, we typically want "keep latest" semantics:
+/// - `/imu` at 400Hz: capacity=1, always use newest reading
+/// - `/camera` at 30Hz: capacity=2-3, slight buffer for processing jitter
+/// - `/path_plan`: capacity=64+, reliable delivery matters more than latency
+///
+/// QoS options to implement:
+/// - `KeepLast(n)` - buffer n messages, drop oldest on overflow (current behavior)
+/// - `KeepAll` - reliable delivery, backpressure on slow consumers
+/// - `BestEffort` - capacity=1, always latest, no lag errors
 const DEFAULT_CHANNEL_CAPACITY: usize = 256;
 
 /// Type-erased topic channel that stores broadcast sender
