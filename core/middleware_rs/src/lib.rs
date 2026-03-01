@@ -79,7 +79,7 @@ pub mod proto {
 }
 
 pub use middleware::{Middleware, MiddlewareError, Subscription};
-pub use topic::TopicRegistry;
+pub use topic::{Qos, TopicRegistry};
 
 #[cfg(test)]
 mod integration_tests {

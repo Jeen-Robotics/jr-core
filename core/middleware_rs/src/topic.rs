@@ -6,19 +6,43 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use tokio::sync::broadcast;
 
-/// Default channel capacity for broadcast channels
+/// Quality of Service configuration for topics
 ///
-/// TODO: Make configurable via QoS (Quality of Service) mechanism.
-/// For realtime robotics, we typically want "keep latest" semantics:
-/// - `/imu` at 400Hz: capacity=1, always use newest reading
-/// - `/camera` at 30Hz: capacity=2-3, slight buffer for processing jitter
-/// - `/path_plan`: capacity=64+, reliable delivery matters more than latency
-///
-/// QoS options to implement:
-/// - `KeepLast(n)` - buffer n messages, drop oldest on overflow (current behavior)
-/// - `KeepAll` - reliable delivery, backpressure on slow consumers
-/// - `BestEffort` - capacity=1, always latest, no lag errors
-const DEFAULT_CHANNEL_CAPACITY: usize = 256;
+/// Controls buffering behavior and how slow consumers are handled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Qos {
+    /// Default behavior: buffer up to `capacity` messages.
+    /// Slow consumers receive `Lagged` error when they fall behind.
+    /// Good for: reliable message delivery where order matters.
+    KeepLast(usize),
+
+    /// Realtime/sensor behavior: always get the latest message.
+    /// Equivalent to `KeepLast(1)` but `recv()` silently skips to newest
+    /// instead of returning `Lagged` error.
+    /// Good for: IMU, odometry, sensor readings where only latest matters.
+    SensorData,
+}
+
+impl Default for Qos {
+    fn default() -> Self {
+        Qos::KeepLast(256)
+    }
+}
+
+impl Qos {
+    /// Get the channel capacity for this QoS setting
+    pub fn capacity(&self) -> usize {
+        match self {
+            Qos::KeepLast(n) => *n,
+            Qos::SensorData => 1,
+        }
+    }
+
+    /// Whether to silently skip lagged messages
+    pub fn skip_lagged(&self) -> bool {
+        matches!(self, Qos::SensorData)
+    }
+}
 
 /// Type-erased topic channel that stores broadcast sender
 struct TopicChannel {
@@ -26,6 +50,8 @@ struct TopicChannel {
     sender: Box<dyn Any + Send + Sync>,
     /// TypeId of the message type for runtime type checking
     type_id: TypeId,
+    /// QoS configuration for this topic
+    qos: Qos,
 }
 
 /// Registry for all topics and their channels
@@ -45,13 +71,15 @@ impl TopicRegistry {
         }
     }
 
-    /// Get or create a broadcast sender for a topic
+    /// Get or create a broadcast sender for a topic with specified QoS
     ///
-    /// If the topic doesn't exist, creates a new broadcast channel.
+    /// If the topic doesn't exist, creates a new broadcast channel with given QoS.
     /// If it exists with a different type, returns None (type mismatch).
-    pub fn get_or_create_sender<T: Send + Sync + 'static>(
+    /// If it exists with matching type, returns the existing sender (QoS is ignored).
+    pub fn get_or_create_sender_with_qos<T: Send + Sync + 'static>(
         &self,
         topic: &str,
+        qos: Qos,
     ) -> Option<broadcast::Sender<Arc<T>>> {
         let type_id = TypeId::of::<T>();
 
@@ -69,19 +97,17 @@ impl TopicRegistry {
             return Some(sender.clone());
         }
 
-        // Create new channel
-        let (sender, _) = broadcast::channel::<Arc<T>>(DEFAULT_CHANNEL_CAPACITY);
+        // Create new channel with QoS capacity
+        let (sender, _) = broadcast::channel::<Arc<T>>(qos.capacity());
         let sender_clone = sender.clone();
 
-        // Try to insert, handling race conditions
         let channel = TopicChannel {
             sender: Box::new(sender),
             type_id,
+            qos,
         };
 
         // Use entry API to handle concurrent inserts
-        // or_insert_with would be better but we need to handle the case
-        // where another thread inserted a different type
         match self.topics.entry(topic.to_string()) {
             dashmap::mapref::entry::Entry::Occupied(entry) => {
                 // Another thread inserted first, verify type
@@ -95,23 +121,44 @@ impl TopicRegistry {
                     .map(|s| s.clone())
             }
             dashmap::mapref::entry::Entry::Vacant(entry) => {
-                // We're first, insert and return our sender
                 entry.insert(channel);
                 Some(sender_clone)
             }
         }
     }
 
-    /// Subscribe to a topic, returns a receiver
+    /// Get or create a broadcast sender with default QoS
+    pub fn get_or_create_sender<T: Send + Sync + 'static>(
+        &self,
+        topic: &str,
+    ) -> Option<broadcast::Sender<Arc<T>>> {
+        self.get_or_create_sender_with_qos(topic, Qos::default())
+    }
+
+    /// Subscribe to a topic with specified QoS, returns a receiver
     ///
-    /// If the topic doesn't exist, creates it.
+    /// If the topic doesn't exist, creates it with given QoS.
     /// If the topic exists with a different type, returns None.
+    pub fn subscribe_with_qos<T: Send + Sync + 'static>(
+        &self,
+        topic: &str,
+        qos: Qos,
+    ) -> Option<broadcast::Receiver<Arc<T>>> {
+        self.get_or_create_sender_with_qos::<T>(topic, qos)
+            .map(|sender| sender.subscribe())
+    }
+
+    /// Subscribe to a topic with default QoS
     pub fn subscribe<T: Send + Sync + 'static>(
         &self,
         topic: &str,
     ) -> Option<broadcast::Receiver<Arc<T>>> {
-        self.get_or_create_sender::<T>(topic)
-            .map(|sender| sender.subscribe())
+        self.subscribe_with_qos(topic, Qos::default())
+    }
+
+    /// Get the QoS configuration for a topic
+    pub fn get_qos(&self, topic: &str) -> Option<Qos> {
+        self.topics.get(topic).map(|e| e.qos)
     }
 
     /// Publish a message to a topic
@@ -215,5 +262,22 @@ mod tests {
         assert!(registry.has_topic("removable"));
         assert!(registry.remove_topic("removable"));
         assert!(!registry.has_topic("removable"));
+    }
+
+    #[test]
+    fn test_qos_sensor_data() {
+        let registry = TopicRegistry::new();
+        let _rx = registry.subscribe_with_qos::<f64>("imu", Qos::SensorData);
+        
+        assert!(registry.has_topic("imu"));
+        assert_eq!(registry.get_qos("imu"), Some(Qos::SensorData));
+    }
+
+    #[test]
+    fn test_qos_keep_last() {
+        let registry = TopicRegistry::new();
+        let _rx = registry.subscribe_with_qos::<String>("logs", Qos::KeepLast(1024));
+        
+        assert_eq!(registry.get_qos("logs"), Some(Qos::KeepLast(1024)));
     }
 }

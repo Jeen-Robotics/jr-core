@@ -4,14 +4,14 @@ use std::sync::Arc;
 
 use tokio::sync::broadcast;
 
-use crate::topic::TopicRegistry;
+use crate::topic::{Qos, TopicRegistry};
 
 /// Errors that can occur during middleware operations
 #[derive(Debug, Clone)]
 pub enum MiddlewareError {
     /// Topic exists with a different message type
     TypeMismatch { topic: String },
-    /// Channel is lagging (missed messages)
+    /// Channel is lagging (missed messages) - only for KeepLast QoS
     Lagged { topic: String, count: u64 },
     /// Channel is closed
     Closed { topic: String },
@@ -39,55 +39,86 @@ impl std::error::Error for MiddlewareError {}
 pub struct Subscription<T: Send + Sync + 'static> {
     receiver: broadcast::Receiver<Arc<T>>,
     topic: String,
+    qos: Qos,
 }
 
 impl<T: Send + Sync + 'static> Subscription<T> {
     /// Receive the next message
     ///
+    /// For `Qos::SensorData`, lagged messages are silently skipped and the
+    /// latest available message is returned. For `Qos::KeepLast`, lagging
+    /// returns an error.
+    ///
     /// Returns the message wrapped in Arc for zero-copy sharing.
     pub async fn recv(&mut self) -> Result<Arc<T>, MiddlewareError> {
-        match self.receiver.recv().await {
-            Ok(msg) => Ok(msg),
-            Err(broadcast::error::RecvError::Lagged(n)) => {
-                eprintln!("[middleware_rs] WARN: Subscription to '{}' lagged by {} messages", self.topic, n);
-                Err(MiddlewareError::Lagged {
-                    topic: self.topic.clone(),
-                    count: n,
-                })
-            }
-            Err(broadcast::error::RecvError::Closed) => {
-                Err(MiddlewareError::Closed {
-                    topic: self.topic.clone(),
-                })
+        loop {
+            match self.receiver.recv().await {
+                Ok(msg) => return Ok(msg),
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    if self.qos.skip_lagged() {
+                        // SensorData QoS: silently skip to latest, retry
+                        continue;
+                    } else {
+                        eprintln!(
+                            "[middleware_rs] WARN: Subscription to '{}' lagged by {} messages",
+                            self.topic, n
+                        );
+                        return Err(MiddlewareError::Lagged {
+                            topic: self.topic.clone(),
+                            count: n,
+                        });
+                    }
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    return Err(MiddlewareError::Closed {
+                        topic: self.topic.clone(),
+                    });
+                }
             }
         }
     }
 
     /// Try to receive without blocking
     ///
+    /// For `Qos::SensorData`, lagged messages are silently skipped.
     /// Returns None if no message is available.
     pub fn try_recv(&mut self) -> Option<Result<Arc<T>, MiddlewareError>> {
-        match self.receiver.try_recv() {
-            Ok(msg) => Some(Ok(msg)),
-            Err(broadcast::error::TryRecvError::Lagged(n)) => {
-                eprintln!("[middleware_rs] WARN: Subscription to '{}' lagged by {} messages", self.topic, n);
-                Some(Err(MiddlewareError::Lagged {
-                    topic: self.topic.clone(),
-                    count: n,
-                }))
+        loop {
+            match self.receiver.try_recv() {
+                Ok(msg) => return Some(Ok(msg)),
+                Err(broadcast::error::TryRecvError::Lagged(n)) => {
+                    if self.qos.skip_lagged() {
+                        // SensorData QoS: silently skip, retry
+                        continue;
+                    } else {
+                        eprintln!(
+                            "[middleware_rs] WARN: Subscription to '{}' lagged by {} messages",
+                            self.topic, n
+                        );
+                        return Some(Err(MiddlewareError::Lagged {
+                            topic: self.topic.clone(),
+                            count: n,
+                        }));
+                    }
+                }
+                Err(broadcast::error::TryRecvError::Closed) => {
+                    return Some(Err(MiddlewareError::Closed {
+                        topic: self.topic.clone(),
+                    }));
+                }
+                Err(broadcast::error::TryRecvError::Empty) => return None,
             }
-            Err(broadcast::error::TryRecvError::Closed) => {
-                Some(Err(MiddlewareError::Closed {
-                    topic: self.topic.clone(),
-                }))
-            }
-            Err(broadcast::error::TryRecvError::Empty) => None,
         }
     }
 
     /// Get the topic name
     pub fn topic(&self) -> &str {
         &self.topic
+    }
+
+    /// Get the QoS configuration
+    pub fn qos(&self) -> Qos {
+        self.qos
     }
 
     /// Creates a new receiver that sees only messages published *after* this call.
@@ -98,6 +129,7 @@ impl<T: Send + Sync + 'static> Subscription<T> {
         Self {
             receiver: self.receiver.resubscribe(),
             topic: self.topic.clone(),
+            qos: self.qos,
         }
     }
 }
@@ -111,13 +143,16 @@ impl<T: Send + Sync + 'static> Subscription<T> {
 /// # Example
 ///
 /// ```ignore
-/// use middleware_rs::Middleware;
+/// use middleware_rs::{Middleware, Qos};
 /// use std::sync::Arc;
 ///
 /// let mw = Middleware::new();
 /// 
-/// // Subscribe to a topic
+/// // Subscribe to a topic (default QoS)
 /// let mut sub = mw.subscribe::<String>("greetings").unwrap();
+/// 
+/// // Subscribe to sensor data (realtime, latest-only)
+/// let mut imu = mw.subscribe_with_qos::<f64>("imu", Qos::SensorData).unwrap();
 /// 
 /// // Publish a message
 /// mw.publish("greetings", Arc::new("Hello!".to_string()));
@@ -138,7 +173,7 @@ impl Middleware {
         }
     }
 
-    /// Subscribe to a topic
+    /// Subscribe to a topic with default QoS (KeepLast(256))
     ///
     /// Returns a Subscription handle that can be used to receive messages.
     /// The topic is created if it doesn't exist.
@@ -150,10 +185,35 @@ impl Middleware {
         &self,
         topic: &str,
     ) -> Result<Subscription<T>, MiddlewareError> {
-        match self.topics.subscribe::<T>(topic) {
+        self.subscribe_with_qos(topic, Qos::default())
+    }
+
+    /// Subscribe to a topic with specified QoS
+    ///
+    /// # QoS Options
+    ///
+    /// - `Qos::KeepLast(n)` - Buffer n messages, return Lagged error if slow
+    /// - `Qos::SensorData` - Always get latest, silently skip old messages
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // For IMU data at 400Hz, we only care about the latest reading
+    /// let mut imu = mw.subscribe_with_qos::<ImuData>("imu", Qos::SensorData)?;
+    /// 
+    /// // For logs, we want reliable delivery with a large buffer
+    /// let mut logs = mw.subscribe_with_qos::<String>("logs", Qos::KeepLast(1024))?;
+    /// ```
+    pub fn subscribe_with_qos<T: Send + Sync + 'static>(
+        &self,
+        topic: &str,
+        qos: Qos,
+    ) -> Result<Subscription<T>, MiddlewareError> {
+        match self.topics.subscribe_with_qos::<T>(topic, qos) {
             Some(receiver) => Ok(Subscription {
                 receiver,
                 topic: topic.to_string(),
+                qos,
             }),
             None => Err(MiddlewareError::TypeMismatch {
                 topic: topic.to_string(),
@@ -196,6 +256,11 @@ impl Middleware {
     /// Check if a topic exists
     pub fn has_topic(&self, topic: &str) -> bool {
         self.topics.has_topic(topic)
+    }
+
+    /// Get the QoS configuration for a topic
+    pub fn get_qos(&self, topic: &str) -> Option<Qos> {
+        self.topics.get_qos(topic)
     }
 
     /// Get the number of active subscribers for a topic
@@ -416,5 +481,51 @@ mod tests {
 
         // Empty again
         assert!(sub.try_recv().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_sensor_data_qos() {
+        let mw = Middleware::new();
+
+        // Subscribe with SensorData QoS (capacity=1, skip lagged)
+        let mut sub = mw
+            .subscribe_with_qos::<i32>("sensor", Qos::SensorData)
+            .unwrap();
+
+        assert_eq!(sub.qos(), Qos::SensorData);
+        assert_eq!(mw.get_qos("sensor"), Some(Qos::SensorData));
+
+        // Publish multiple messages rapidly (will overflow capacity=1)
+        for i in 0..10 {
+            mw.publish_owned("sensor", i).unwrap();
+        }
+
+        // SensorData QoS should silently skip lagged and return latest
+        let msg = sub.recv().await.unwrap();
+        // Should get the last message (9), lagging is silently handled
+        assert_eq!(*msg, 9);
+    }
+
+    #[tokio::test]
+    async fn test_keep_last_qos() {
+        let mw = Middleware::new();
+
+        // Subscribe with small KeepLast buffer
+        let mut sub = mw
+            .subscribe_with_qos::<i32>("buffered", Qos::KeepLast(4))
+            .unwrap();
+
+        assert_eq!(sub.qos(), Qos::KeepLast(4));
+
+        // Publish within buffer capacity
+        for i in 0..3 {
+            mw.publish_owned("buffered", i).unwrap();
+        }
+
+        // Should receive all in order
+        for i in 0..3 {
+            let msg = sub.recv().await.unwrap();
+            assert_eq!(*msg, i);
+        }
     }
 }
