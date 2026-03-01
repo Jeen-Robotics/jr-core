@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package std_msgs;
+
+// Standard header for all messages
+message Header {
+  uint32 seq = 1;             // Sequence number
+  uint64 timestamp_ns = 2;    // Nanoseconds since epoch
+  string frame_id = 3;        // TF frame this message is associated with
+}
+
+// Basic geometric types
+message Vector3 {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+}
+
+message Quaternion {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+  double w = 4;
+}
