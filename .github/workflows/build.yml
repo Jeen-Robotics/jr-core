@@ -41,7 +41,8 @@ jobs:
             libwayland-dev \
             wayland-protocols \
             libpulse-dev \
-            libasound2-dev
+            libasound2-dev \
+            protobuf-compiler
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
