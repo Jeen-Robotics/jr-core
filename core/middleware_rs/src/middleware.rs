@@ -277,6 +277,14 @@ impl Middleware {
     pub fn topic_names(&self) -> Vec<String> {
         self.topics.topic_names()
     }
+
+    /// Get access to the underlying TopicRegistry
+    ///
+    /// This is primarily for FFI use cases where direct access to
+    /// the registry is needed.
+    pub fn topics(&self) -> &TopicRegistry {
+        &self.topics
+    }
 }
 
 impl Default for Middleware {
