@@ -7,3 +7,4 @@ CMakeUserPresets.json
 core/middleware_rs/target/
 core/middleware_rs/Cargo.lock
 target/
+build-ci/
