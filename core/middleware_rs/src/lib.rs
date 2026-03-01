@@ -155,41 +155,34 @@ mod integration_tests {
         let mw = Arc::new(Middleware::new());
         let message_count = 100;
 
-        // Spawn subscriber tasks
-        let mut handles = vec![];
+        // Pre-create subscriptions before spawning tasks (avoids race condition)
+        let subscriptions: Vec<_> = (0..3)
+            .map(|_| mw.subscribe::<i32>("concurrent").unwrap())
+            .collect();
 
-        for sub_id in 0..3 {
-            let mw_clone = mw.clone();
-            let handle = tokio::spawn(async move {
-                let mut sub = mw_clone.subscribe::<i32>("concurrent").unwrap();
-                let mut received = vec![];
-
-                for _ in 0..message_count {
-                    match timeout(Duration::from_secs(5), sub.recv()).await {
-                        Ok(Ok(msg)) => received.push(*msg),
-                        Ok(Err(e)) => panic!("Subscriber {} error: {:?}", sub_id, e),
-                        Err(_) => panic!("Subscriber {} timeout", sub_id),
+        // Spawn subscriber tasks with pre-created subscriptions
+        let handles: Vec<_> = subscriptions
+            .into_iter()
+            .enumerate()
+            .map(|(sub_id, mut sub)| {
+                tokio::spawn(async move {
+                    let mut received = vec![];
+                    for _ in 0..message_count {
+                        match timeout(Duration::from_secs(5), sub.recv()).await {
+                            Ok(Ok(msg)) => received.push(*msg),
+                            Ok(Err(e)) => panic!("Subscriber {} error: {:?}", sub_id, e),
+                            Err(_) => panic!("Subscriber {} timeout", sub_id),
+                        }
                     }
-                }
+                    received
+                })
+            })
+            .collect();
 
-                received
-            });
-            handles.push(handle);
+        // Publish messages (subscriptions already exist, no race)
+        for i in 0..message_count {
+            mw.publish_owned("concurrent", i as i32).unwrap();
         }
-
-        // Give subscribers time to set up
-        tokio::time::sleep(Duration::from_millis(10)).await;
-
-        // Spawn publisher task
-        let mw_pub = mw.clone();
-        let pub_handle = tokio::spawn(async move {
-            for i in 0..message_count {
-                mw_pub.publish_owned("concurrent", i as i32).unwrap();
-            }
-        });
-
-        // Wait for publisher
-        pub_handle.await.unwrap();
 
         // Wait for all subscribers and verify results
         for handle in handles {

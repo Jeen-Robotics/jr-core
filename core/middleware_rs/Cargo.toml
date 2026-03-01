@@ -16,9 +16,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time"
 dashmap = "6"
 
 # Protobuf (compatible with C++ protobuf wire format)
+# prost compiles `bytes` fields to Vec<u8> by default
+# prost-types only needed for google.protobuf.* well-known types (not used)
 prost = "0.13"
-prost-types = "0.13"
-bytes = "1"
 
 # FFI (will be used in Phase 2)
 # cxx = "1.0"

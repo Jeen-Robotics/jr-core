@@ -128,27 +128,13 @@ impl<T: Send + Sync + 'static> Subscription<T> {
 /// ```
 pub struct Middleware {
     topics: TopicRegistry,
-    /// Optional runtime handle for future use (spawning internal tasks)
-    runtime: Option<tokio::runtime::Handle>,
 }
 
 impl Middleware {
     /// Create a new Middleware instance
-    ///
-    /// Does not require a tokio runtime context. The runtime handle
-    /// is optional and only used for future internal task spawning.
     pub fn new() -> Self {
         Self {
             topics: TopicRegistry::new(),
-            runtime: tokio::runtime::Handle::try_current().ok(),
-        }
-    }
-
-    /// Create Middleware with a specific runtime handle
-    pub fn with_runtime(handle: tokio::runtime::Handle) -> Self {
-        Self {
-            topics: TopicRegistry::new(),
-            runtime: Some(handle),
         }
     }
 
@@ -226,11 +212,6 @@ impl Middleware {
     pub fn topic_names(&self) -> Vec<String> {
         self.topics.topic_names()
     }
-
-    /// Get a reference to the runtime handle, if available
-    pub fn runtime(&self) -> Option<&tokio::runtime::Handle> {
-        self.runtime.as_ref()
-    }
 }
 
 impl Default for Middleware {
@@ -239,8 +220,8 @@ impl Default for Middleware {
     }
 }
 
-// Note: Middleware is automatically Send + Sync because all fields
-// (TopicRegistry via DashMap, Option<Handle>) implement Send + Sync
+// Note: Middleware is automatically Send + Sync because TopicRegistry
+// (via DashMap) implements Send + Sync
 
 #[cfg(test)]
 mod tests {
