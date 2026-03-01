@@ -132,10 +132,17 @@ impl TopicRegistry {
 
     /// Get the number of active subscribers for a topic
     ///
-    /// Returns None if topic doesn't exist.
+    /// Returns None if topic doesn't exist or type doesn't match.
+    /// Does NOT create the topic if it doesn't exist.
     pub fn subscriber_count<T: Send + Sync + 'static>(&self, topic: &str) -> Option<usize> {
-        self.get_or_create_sender::<T>(topic)
-            .map(|sender| sender.receiver_count())
+        let entry = self.topics.get(topic)?;
+        if entry.type_id != TypeId::of::<T>() {
+            return None;
+        }
+        entry
+            .sender
+            .downcast_ref::<broadcast::Sender<Arc<T>>>()
+            .map(|s| s.receiver_count())
     }
 
     /// Remove a topic from the registry

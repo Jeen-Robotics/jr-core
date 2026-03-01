@@ -20,13 +20,13 @@ prost-types = "0.13"
 bytes = "1"
 
 # FFI (will be used in Phase 2)
-cxx = "1.0"
+# cxx = "1.0"
 
 # Logging
 tracing = "0.1"
 
 [build-dependencies]
-cxx-build = "1.0"
+# cxx-build = "1.0"  # Will be enabled in Phase 2
 prost-build = "0.13"
 
 [dev-dependencies]

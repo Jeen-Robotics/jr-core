@@ -2,7 +2,8 @@
 .cache
 .DS_Store
 build/
-CMakeUserPresets.json-e 
+CMakeUserPresets.json
 # Rust build artifacts
 core/middleware_rs/target/
+core/middleware_rs/Cargo.lock
 target/

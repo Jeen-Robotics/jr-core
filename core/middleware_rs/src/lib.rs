@@ -17,12 +17,12 @@
 //!     let mw = Middleware::new();
 //!     
 //!     // Subscribe to a topic
-//!     let mut sub = mw.subscribe::<String>("greetings").await.unwrap();
+//!     let mut sub = mw.subscribe::<String>("greetings").unwrap();
 //!     
 //!     // Publish a message
-//!     mw.publish("greetings", Arc::new("Hello!".to_string())).await.unwrap();
+//!     mw.publish("greetings", Arc::new("Hello!".to_string())).unwrap();
 //!     
-//!     // Receive the message (zero-copy - same Arc)
+//!     // Receive the message (zero-copy - same Arc, async recv)
 //!     let msg = sub.recv().await.unwrap();
 //!     println!("Received: {}", *msg);
 //! }
@@ -93,12 +93,12 @@ mod integration_tests {
         let mw = Middleware::new();
 
         // Create multiple subscribers before publishing
-        let mut sub1 = mw.subscribe::<String>("workflow").await.unwrap();
-        let mut sub2 = mw.subscribe::<String>("workflow").await.unwrap();
+        let mut sub1 = mw.subscribe::<String>("workflow").unwrap();
+        let mut sub2 = mw.subscribe::<String>("workflow").unwrap();
 
         // Publish a message
         let message = Arc::new("workflow test message".to_string());
-        let receiver_count = mw.publish("workflow", message.clone()).await.unwrap();
+        let receiver_count = mw.publish("workflow", message.clone()).unwrap();
         assert_eq!(receiver_count, 2);
 
         // Both subscribers should receive the message
@@ -125,7 +125,7 @@ mod integration_tests {
     async fn test_complex_message_types() {
         let mw = Middleware::new();
 
-        let mut sub = mw.subscribe::<CameraFrame>("camera/front").await.unwrap();
+        let mut sub = mw.subscribe::<CameraFrame>("camera/front").unwrap();
 
         // Simulate a large camera frame
         let frame = CameraFrame {
@@ -138,7 +138,7 @@ mod integration_tests {
         let frame_arc = Arc::new(frame);
         let original_ptr = Arc::as_ptr(&frame_arc);
 
-        mw.publish("camera/front", frame_arc).await.unwrap();
+        mw.publish("camera/front", frame_arc).unwrap();
 
         let received = sub.recv().await.unwrap();
 
@@ -161,7 +161,7 @@ mod integration_tests {
         for sub_id in 0..3 {
             let mw_clone = mw.clone();
             let handle = tokio::spawn(async move {
-                let mut sub = mw_clone.subscribe::<i32>("concurrent").await.unwrap();
+                let mut sub = mw_clone.subscribe::<i32>("concurrent").unwrap();
                 let mut received = vec![];
 
                 for _ in 0..message_count {
@@ -184,7 +184,7 @@ mod integration_tests {
         let mw_pub = mw.clone();
         let pub_handle = tokio::spawn(async move {
             for i in 0..message_count {
-                mw_pub.publish_owned("concurrent", i as i32).await.unwrap();
+                mw_pub.publish_owned("concurrent", i as i32).unwrap();
             }
         });
 
@@ -208,8 +208,8 @@ mod integration_tests {
         let mw = Middleware::new();
 
         // Create two subscribers
-        let mut sub1 = mw.subscribe::<String>("unsub").await.unwrap();
-        let sub2 = mw.subscribe::<String>("unsub").await.unwrap();
+        let mut sub1 = mw.subscribe::<String>("unsub").unwrap();
+        let sub2 = mw.subscribe::<String>("unsub").unwrap();
 
         assert_eq!(mw.subscriber_count::<String>("unsub"), Some(2));
 
@@ -221,7 +221,6 @@ mod integration_tests {
 
         // Publish should deliver to remaining subscriber
         mw.publish_owned("unsub", "still here".to_string())
-            .await
             .unwrap();
 
         let msg = sub1.recv().await.unwrap();
@@ -234,7 +233,6 @@ mod integration_tests {
         // Publishing to empty topic should still work
         let count = mw
             .publish_owned("unsub", "nobody listening".to_string())
-            .await
             .unwrap();
         assert_eq!(count, 0);
     }
@@ -245,14 +243,14 @@ mod integration_tests {
         let mw = Middleware::new();
 
         // Use unique topic names to avoid conflicts with other tests
-        let mut cam_sub = mw.subscribe::<Vec<u8>>("multi_topics/camera").await.unwrap();
-        let mut imu_sub = mw.subscribe::<(f64, f64, f64)>("multi_topics/imu").await.unwrap();
-        let mut gps_sub = mw.subscribe::<(f64, f64)>("multi_topics/gps").await.unwrap();
+        let mut cam_sub = mw.subscribe::<Vec<u8>>("multi_topics/camera").unwrap();
+        let mut imu_sub = mw.subscribe::<(f64, f64, f64)>("multi_topics/imu").unwrap();
+        let mut gps_sub = mw.subscribe::<(f64, f64)>("multi_topics/gps").unwrap();
 
         // Publish to different topics
-        mw.publish_owned("multi_topics/camera", vec![1u8, 2u8, 3u8]).await.unwrap();
-        mw.publish_owned("multi_topics/imu", (1.0, 2.0, 3.0)).await.unwrap();
-        mw.publish_owned("multi_topics/gps", (55.7558, 37.6173)).await.unwrap();
+        mw.publish_owned("multi_topics/camera", vec![1u8, 2u8, 3u8]).unwrap();
+        mw.publish_owned("multi_topics/imu", (1.0, 2.0, 3.0)).unwrap();
+        mw.publish_owned("multi_topics/gps", (55.7558, 37.6173)).unwrap();
 
         // Each subscriber only gets its topic's messages
         let cam = cam_sub.recv().await.unwrap();
@@ -264,32 +262,26 @@ mod integration_tests {
         assert_eq!(*gps, (55.7558, 37.6173));
     }
 
-    /// Verify zero-copy by checking Arc strong_count
+    /// Verify zero-copy by checking Arc pointer equality
     #[tokio::test]
-    async fn test_zero_copy_arc_counting() {
+    async fn test_zero_copy_arc_verification() {
         let mw = Middleware::new();
 
-        let mut sub1 = mw.subscribe::<String>("arc_test").await.unwrap();
-        let mut sub2 = mw.subscribe::<String>("arc_test").await.unwrap();
+        let mut sub1 = mw.subscribe::<String>("arc_test").unwrap();
+        let mut sub2 = mw.subscribe::<String>("arc_test").unwrap();
 
         let msg = Arc::new("shared data".to_string());
-        assert_eq!(Arc::strong_count(&msg), 1); // Only original
+        let original_ptr = Arc::as_ptr(&msg);
 
-        mw.publish("arc_test", msg.clone()).await.unwrap();
-
-        // Now msg has been cloned into the broadcast channel
-        // strong_count includes: original + channel internal copies
+        mw.publish("arc_test", msg.clone()).unwrap();
 
         let r1 = sub1.recv().await.unwrap();
         let r2 = sub2.recv().await.unwrap();
 
-        // r1 and r2 are the same Arc as msg (zero-copy)
-        assert!(Arc::ptr_eq(&r1, &msg));
-        assert!(Arc::ptr_eq(&r2, &msg));
+        // All Arc instances point to the same allocation (zero-copy)
+        assert_eq!(Arc::as_ptr(&r1), original_ptr);
+        assert_eq!(Arc::as_ptr(&r2), original_ptr);
         assert!(Arc::ptr_eq(&r1, &r2));
-
-        // Total count should be: original (msg) + r1 + r2 = 3
-        // (channel may have released its copy after send)
-        assert!(Arc::strong_count(&msg) >= 3);
+        assert!(Arc::ptr_eq(&r1, &msg));
     }
 }

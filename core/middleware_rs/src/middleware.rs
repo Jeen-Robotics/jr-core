@@ -104,7 +104,7 @@ impl<T: Send + Sync + 'static> Subscription<T> {
 
 /// Main middleware struct for pub/sub communication
 ///
-/// Provides async publish/subscribe functionality with zero-copy message passing.
+/// Provides publish/subscribe functionality with zero-copy message passing.
 /// Messages are wrapped in `Arc<T>` so multiple subscribers receive the same
 /// allocation without copying.
 ///
@@ -114,34 +114,33 @@ impl<T: Send + Sync + 'static> Subscription<T> {
 /// use middleware_rs::Middleware;
 /// use std::sync::Arc;
 ///
-/// #[tokio::main]
-/// async fn main() {
-///     let mw = Middleware::new();
-///     
-///     // Subscribe to a topic
-///     let mut sub = mw.subscribe::<String>("greetings").await.unwrap();
-///     
-///     // Publish a message
-///     mw.publish("greetings", Arc::new("Hello!".to_string())).await;
-///     
-///     // Receive the message
-///     let msg = sub.recv().await.unwrap();
-///     assert_eq!(*msg, "Hello!");
-/// }
+/// let mw = Middleware::new();
+/// 
+/// // Subscribe to a topic
+/// let mut sub = mw.subscribe::<String>("greetings").unwrap();
+/// 
+/// // Publish a message
+/// mw.publish("greetings", Arc::new("Hello!".to_string()));
+/// 
+/// // Receive the message (async)
+/// let msg = sub.recv().await.unwrap();
+/// assert_eq!(*msg, "Hello!");
 /// ```
 pub struct Middleware {
     topics: TopicRegistry,
-    runtime: tokio::runtime::Handle,
+    /// Optional runtime handle for future use (spawning internal tasks)
+    runtime: Option<tokio::runtime::Handle>,
 }
 
 impl Middleware {
     /// Create a new Middleware instance
     ///
-    /// Panics if called outside of a tokio runtime context.
+    /// Does not require a tokio runtime context. The runtime handle
+    /// is optional and only used for future internal task spawning.
     pub fn new() -> Self {
         Self {
             topics: TopicRegistry::new(),
-            runtime: tokio::runtime::Handle::current(),
+            runtime: tokio::runtime::Handle::try_current().ok(),
         }
     }
 
@@ -149,7 +148,7 @@ impl Middleware {
     pub fn with_runtime(handle: tokio::runtime::Handle) -> Self {
         Self {
             topics: TopicRegistry::new(),
-            runtime: handle,
+            runtime: Some(handle),
         }
     }
 
@@ -161,7 +160,7 @@ impl Middleware {
     /// # Type Safety
     ///
     /// Returns an error if the topic already exists with a different message type.
-    pub async fn subscribe<T: Send + Sync + 'static>(
+    pub fn subscribe<T: Send + Sync + 'static>(
         &self,
         topic: &str,
     ) -> Result<Subscription<T>, MiddlewareError> {
@@ -190,7 +189,7 @@ impl Middleware {
     /// # Type Safety
     ///
     /// Returns an error if the topic already exists with a different message type.
-    pub async fn publish<T: Send + Sync + 'static>(
+    pub fn publish<T: Send + Sync + 'static>(
         &self,
         topic: &str,
         msg: Arc<T>,
@@ -212,12 +211,12 @@ impl Middleware {
     /// Publish a message, automatically wrapping it in Arc
     ///
     /// Convenience method that wraps the message in Arc before publishing.
-    pub async fn publish_owned<T: Send + Sync + 'static>(
+    pub fn publish_owned<T: Send + Sync + 'static>(
         &self,
         topic: &str,
         msg: T,
     ) -> Result<usize, MiddlewareError> {
-        self.publish(topic, Arc::new(msg)).await
+        self.publish(topic, Arc::new(msg))
     }
 
     /// Check if a topic exists
@@ -244,9 +243,9 @@ impl Middleware {
         self.topics.topic_names()
     }
 
-    /// Get a reference to the runtime handle
-    pub fn runtime(&self) -> &tokio::runtime::Handle {
-        &self.runtime
+    /// Get a reference to the runtime handle, if available
+    pub fn runtime(&self) -> Option<&tokio::runtime::Handle> {
+        self.runtime.as_ref()
     }
 }
 
@@ -256,9 +255,8 @@ impl Default for Middleware {
     }
 }
 
-// Middleware is Send + Sync because TopicRegistry uses DashMap
-unsafe impl Send for Middleware {}
-unsafe impl Sync for Middleware {}
+// Note: Middleware is automatically Send + Sync because all fields
+// (TopicRegistry via DashMap, Option<Handle>) implement Send + Sync
 
 #[cfg(test)]
 mod tests {
@@ -269,11 +267,11 @@ mod tests {
         let mw = Middleware::new();
 
         // Subscribe first
-        let mut sub = mw.subscribe::<String>("test").await.unwrap();
+        let mut sub = mw.subscribe::<String>("test").unwrap();
 
         // Publish a message
         let msg = Arc::new("Hello, World!".to_string());
-        let count = mw.publish("test", msg.clone()).await.unwrap();
+        let count = mw.publish("test", msg.clone()).unwrap();
         assert_eq!(count, 1);
 
         // Receive the message
@@ -286,14 +284,14 @@ mod tests {
         let mw = Middleware::new();
 
         // Create multiple subscribers
-        let mut sub1 = mw.subscribe::<String>("multi").await.unwrap();
-        let mut sub2 = mw.subscribe::<String>("multi").await.unwrap();
-        let mut sub3 = mw.subscribe::<String>("multi").await.unwrap();
+        let mut sub1 = mw.subscribe::<String>("multi").unwrap();
+        let mut sub2 = mw.subscribe::<String>("multi").unwrap();
+        let mut sub3 = mw.subscribe::<String>("multi").unwrap();
 
         // Publish a message
         let msg = Arc::new("shared message".to_string());
         let original_ptr = Arc::as_ptr(&msg);
-        let count = mw.publish("multi", msg).await.unwrap();
+        let count = mw.publish("multi", msg).unwrap();
         assert_eq!(count, 3);
 
         // All subscribers receive the same Arc (zero-copy verification)
@@ -317,7 +315,7 @@ mod tests {
         let mw = Middleware::new();
 
         // Subscribe
-        let sub = mw.subscribe::<String>("unsub_test").await.unwrap();
+        let sub = mw.subscribe::<String>("unsub_test").unwrap();
 
         // Verify subscription is active
         assert_eq!(mw.subscriber_count::<String>("unsub_test"), Some(1));
@@ -333,7 +331,6 @@ mod tests {
         // Publishing should still work but deliver to 0 receivers
         let result = mw
             .publish("unsub_test", Arc::new("nobody home".to_string()))
-            .await
             .unwrap();
         assert_eq!(result, 0);
     }
@@ -343,14 +340,14 @@ mod tests {
         let mw = Middleware::new();
 
         // Create topic with String type
-        let _sub = mw.subscribe::<String>("typed").await.unwrap();
+        let _sub = mw.subscribe::<String>("typed").unwrap();
 
         // Try to publish with different type
-        let result = mw.publish("typed", Arc::new(42i32)).await;
+        let result = mw.publish("typed", Arc::new(42i32));
         assert!(matches!(result, Err(MiddlewareError::TypeMismatch { .. })));
 
         // Try to subscribe with different type
-        let result = mw.subscribe::<i32>("typed").await;
+        let result = mw.subscribe::<i32>("typed");
         assert!(matches!(result, Err(MiddlewareError::TypeMismatch { .. })));
     }
 
@@ -358,11 +355,10 @@ mod tests {
     async fn test_publish_owned() {
         let mw = Middleware::new();
 
-        let mut sub = mw.subscribe::<String>("owned").await.unwrap();
+        let mut sub = mw.subscribe::<String>("owned").unwrap();
 
         // Use publish_owned which auto-wraps in Arc
         mw.publish_owned("owned", "auto-wrapped".to_string())
-            .await
             .unwrap();
 
         let msg = sub.recv().await.unwrap();
@@ -373,11 +369,11 @@ mod tests {
     async fn test_multiple_messages() {
         let mw = Middleware::new();
 
-        let mut sub = mw.subscribe::<i32>("numbers").await.unwrap();
+        let mut sub = mw.subscribe::<i32>("numbers").unwrap();
 
         // Publish multiple messages
         for i in 0..5 {
-            mw.publish_owned("numbers", i).await.unwrap();
+            mw.publish_owned("numbers", i).unwrap();
         }
 
         // Receive all in order
@@ -391,9 +387,9 @@ mod tests {
     async fn test_topic_names() {
         let mw = Middleware::new();
 
-        mw.subscribe::<String>("topic1").await.unwrap();
-        mw.subscribe::<i32>("topic2").await.unwrap();
-        mw.subscribe::<Vec<u8>>("topic3").await.unwrap();
+        mw.subscribe::<String>("topic1").unwrap();
+        mw.subscribe::<i32>("topic2").unwrap();
+        mw.subscribe::<Vec<u8>>("topic3").unwrap();
 
         let names = mw.topic_names();
         assert_eq!(names.len(), 3);
@@ -406,7 +402,7 @@ mod tests {
     async fn test_remove_topic() {
         let mw = Middleware::new();
 
-        let _sub = mw.subscribe::<String>("removable").await.unwrap();
+        let _sub = mw.subscribe::<String>("removable").unwrap();
         assert!(mw.has_topic("removable"));
 
         mw.remove_topic("removable");
@@ -417,11 +413,10 @@ mod tests {
     async fn test_resubscribe() {
         let mw = Middleware::new();
 
-        let sub1 = mw.subscribe::<String>("resub").await.unwrap();
+        let sub1 = mw.subscribe::<String>("resub").unwrap();
 
         // Publish a message that sub1 will miss (it's not awaiting yet)
         mw.publish_owned("resub", "first".to_string())
-            .await
             .unwrap();
 
         // Create a new subscription from sub1 - starts fresh
@@ -429,7 +424,6 @@ mod tests {
 
         // Publish another message
         mw.publish_owned("resub", "second".to_string())
-            .await
             .unwrap();
 
         // sub2 should receive "second" but not "first"
@@ -441,14 +435,13 @@ mod tests {
     async fn test_try_recv() {
         let mw = Middleware::new();
 
-        let mut sub = mw.subscribe::<String>("try_recv").await.unwrap();
+        let mut sub = mw.subscribe::<String>("try_recv").unwrap();
 
         // No message yet
         assert!(sub.try_recv().is_none());
 
         // Publish
         mw.publish_owned("try_recv", "available".to_string())
-            .await
             .unwrap();
 
         // Now there's a message

@@ -7,8 +7,9 @@
 use std::path::PathBuf;
 
 fn main() {
-    // Path to jr-msgs submodule
-    let jr_msgs_path = PathBuf::from("../../external/jr-msgs");
+    // Use CARGO_MANIFEST_DIR for reliable path resolution
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let jr_msgs_path = manifest_dir.join("../../external/jr-msgs");
     
     // Rerun if proto files change
     println!("cargo:rerun-if-changed={}", jr_msgs_path.display());
