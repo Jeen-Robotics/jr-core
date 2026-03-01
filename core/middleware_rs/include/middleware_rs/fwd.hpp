@@ -9,7 +9,7 @@
 #include <memory>
 #include <string>
 
-namespace jr::mw::rust {
+namespace jr::mw {
 
 /// QoS presets matching Rust middleware
 enum class Qos : std::uint8_t {
@@ -47,4 +47,4 @@ struct SubscriberDeleter {
 using PublisherPtr = std::unique_ptr<detail::PublisherImpl, PublisherDeleter>;
 using SubscriberPtr = std::unique_ptr<detail::SubscriberImpl, SubscriberDeleter>;
 
-} // namespace jr::mw::rust
+} // namespace jr::mw

@@ -16,7 +16,7 @@
 #include <thread>
 #include <vector>
 
-namespace jr::mw::rust {
+namespace jr::mw {
 
 namespace detail {
 /// Create subscriber implementation (defined in wrapper.cpp)
@@ -190,4 +190,4 @@ private:
     bool closed_ = false;
 };
 
-} // namespace jr::mw::rust
+} // namespace jr::mw

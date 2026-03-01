@@ -1,5 +1,5 @@
 /// @file basic_usage.cpp
-/// @brief Example demonstrating Rust middleware C++ wrapper usage
+/// @brief Example demonstrating middleware C++ API usage
 ///
 /// Build with CMake after enabling BUILD_RUST_MIDDLEWARE:
 ///   cmake -DBUILD_RUST_MIDDLEWARE=ON ..
@@ -19,8 +19,8 @@
 #include <atomic>
 
 int main() {
-    // Initialize the Rust middleware (idempotent, safe to call multiple times)
-    jr::mw::rust::init();
+    // Initialize the middleware (idempotent, safe to call multiple times)
+    jr::mw::init();
     
     std::atomic<bool> running{true};
     
@@ -31,7 +31,7 @@ int main() {
     std::cout << "=== Example 1: Callback-based subscription ===" << std::endl;
     
     // Create a subscriber with callback
-    auto sub = jr::mw::rust::subscribe<jr::test::Int32>(
+    auto sub = jr::mw::subscribe<jr::test::Int32>(
         "example/counter",
         [](const jr::test::Int32& msg) {
             std::cout << "Received: " << msg.data() << std::endl;
@@ -39,7 +39,7 @@ int main() {
     );
     
     // Create a publisher
-    auto pub = jr::mw::rust::advertise<jr::test::Int32>("example/counter");
+    auto pub = jr::mw::advertise<jr::test::Int32>("example/counter");
     
     if (!pub) {
         std::cerr << "Failed to create publisher" << std::endl;
@@ -64,11 +64,11 @@ int main() {
     
     std::cout << "\n=== Example 2: Polling-based subscription ===" << std::endl;
     
-    auto poll_sub = jr::mw::rust::subscribe<jr::test::Int32>(
+    auto poll_sub = jr::mw::subscribe<jr::test::Int32>(
         "example/poll_topic"
     );
     
-    auto poll_pub = jr::mw::rust::advertise<jr::test::Int32>("example/poll_topic");
+    auto poll_pub = jr::mw::advertise<jr::test::Int32>("example/poll_topic");
     
     // Publish a message
     jr::test::Int32 poll_msg;
@@ -89,14 +89,14 @@ int main() {
     
     std::cout << "\n=== Example 3: SensorData QoS ===" << std::endl;
     
-    auto sensor_sub = jr::mw::rust::subscribe<jr::test::Int32>(
+    auto sensor_sub = jr::mw::subscribe<jr::test::Int32>(
         "example/sensor",
-        jr::mw::rust::Qos::SensorData
+        jr::mw::Qos::SensorData
     );
     
-    auto sensor_pub = jr::mw::rust::advertise<jr::test::Int32>(
+    auto sensor_pub = jr::mw::advertise<jr::test::Int32>(
         "example/sensor",
-        jr::mw::rust::Qos::SensorData
+        jr::mw::Qos::SensorData
     );
     
     // Rapid publishing - some messages may be dropped (that's expected with SensorData)
@@ -123,8 +123,8 @@ int main() {
 #ifdef __linux__
     std::cout << "\n=== Example 4: eventfd-based waiting ===" << std::endl;
     
-    auto wait_sub = jr::mw::rust::subscribe<jr::test::Int32>("example/wait");
-    auto wait_pub = jr::mw::rust::advertise<jr::test::Int32>("example/wait");
+    auto wait_sub = jr::mw::subscribe<jr::test::Int32>("example/wait");
+    auto wait_pub = jr::mw::advertise<jr::test::Int32>("example/wait");
     
     // Check we have a valid fd
     int fd = wait_sub.get_fd();

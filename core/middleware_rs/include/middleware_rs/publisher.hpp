@@ -10,14 +10,14 @@
 #include <string>
 #include <type_traits>
 
-namespace jr::mw::rust {
+namespace jr::mw {
 
 namespace detail {
 /// Create publisher implementation (defined in wrapper.cpp)
 PublisherPtr create_publisher_impl(const std::string& topic, Qos qos, std::size_t capacity);
 
 /// Publish bytes (defined in wrapper.cpp)  
-bool publish_impl(PublisherImpl* impl, const void* data, std::size_t len);
+bool publish_impl(const PublisherImpl* impl, const void* data, std::size_t len);
 
 /// Check validity (defined in wrapper.cpp)
 bool publisher_valid_impl(const PublisherImpl* impl);
@@ -90,4 +90,4 @@ private:
     PublisherPtr impl_;
 };
 
-} // namespace jr::mw::rust
+} // namespace jr::mw

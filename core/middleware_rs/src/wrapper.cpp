@@ -11,7 +11,7 @@
 
 #include <cstdint>
 
-namespace jr::mw::rust {
+namespace jr::mw {
 
 // ============================================================================
 // Implementation Types (pimpl)
@@ -80,7 +80,7 @@ PublisherPtr create_publisher_impl(
     return PublisherPtr(new PublisherImpl(std::move(box)));
 }
 
-bool publish_impl(PublisherImpl* impl, const void* data, std::size_t len) {
+bool publish_impl(const PublisherImpl* impl, const void* data, std::size_t len) {
     if (!impl) return false;
     
     ::rust::Slice<const std::uint8_t> slice(
@@ -135,15 +135,15 @@ RecvResult subscriber_recv_impl(SubscriberImpl* impl) {
     result.closed = ffi_result.closed;
     
     if (ffi_result.has_message) {
-        result.data.assign(
-            ffi_result.data.begin(),
-            ffi_result.data.end()
-        );
+        // Copy from rust::Vec to std::vector (unavoidable at FFI boundary)
+        // Pre-allocate to avoid reallocations
+        result.data.reserve(ffi_result.data.size());
+        result.data.assign(ffi_result.data.begin(), ffi_result.data.end());
     }
     
-    return result;
+    return result;  // NRVO or move semantics apply
 }
 
 } // namespace detail
 
-} // namespace jr::mw::rust
+} // namespace jr::mw

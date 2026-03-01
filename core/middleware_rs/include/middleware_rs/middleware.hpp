@@ -12,13 +12,13 @@
 /// #include <my_msgs/sensor_data.pb.h>
 ///
 /// int main() {
-///     jr::mw::rust::init();
+///     jr::mw::init();
 ///
 ///     // Create typed publisher
-///     auto pub = jr::mw::rust::advertise<my_msgs::SensorData>("sensor/data");
+///     auto pub = jr::mw::advertise<my_msgs::SensorData>("sensor/data");
 ///     
 ///     // Create typed subscriber with callback
-///     auto sub = jr::mw::rust::subscribe<my_msgs::SensorData>(
+///     auto sub = jr::mw::subscribe<my_msgs::SensorData>(
 ///         "sensor/data",
 ///         [](const my_msgs::SensorData& msg) {
 ///             std::cout << "Received: " << msg.value() << std::endl;
@@ -41,7 +41,7 @@
 #include <middleware_rs/publisher.hpp>
 #include <middleware_rs/subscriber.hpp>
 
-namespace jr::mw::rust {
+namespace jr::mw {
 
 /// Initialize the Rust middleware (idempotent)
 /// @return true on success
@@ -103,4 +103,4 @@ bool topic_exists(const std::string& topic);
 /// Get subscriber count for a topic
 std::size_t subscriber_count(const std::string& topic);
 
-} // namespace jr::mw::rust
+} // namespace jr::mw
