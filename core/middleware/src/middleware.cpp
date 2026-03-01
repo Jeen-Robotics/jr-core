@@ -102,6 +102,20 @@ void Middleware::publish(const std::string& topic, const google::protobuf::Messa
         type_full_name.assign(sv.data(), sv.size());
     }
 
+    // Serialize and publish
+    std::string data;
+    if (!message.SerializeToString(&data)) {
+        return;
+    }
+
+    publish_serialized(topic, type_full_name, data);
+}
+
+void Middleware::publish_serialized(
+    const std::string& topic,
+    const std::string& type_full_name,
+    const std::string& payload
+) {
     // Check/register type
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -114,16 +128,10 @@ void Middleware::publish(const std::string& topic, const google::protobuf::Messa
         }
     }
 
-    // Serialize and publish via Rust backend
-    std::string data;
-    if (!message.SerializeToString(&data)) {
-        return;
-    }
-
-    // Create publisher and publish
+    // Publish via Rust backend
     auto pub_impl = detail::create_publisher_impl(topic, Qos::KeepLast, 16);
     if (pub_impl) {
-        detail::publish_impl(pub_impl.get(), data.data(), data.size());
+        detail::publish_impl(pub_impl.get(), payload.data(), payload.size());
     }
 }
 

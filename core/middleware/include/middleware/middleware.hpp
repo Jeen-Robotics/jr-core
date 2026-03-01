@@ -50,6 +50,13 @@ public:
     /// Publish a protobuf message
     void publish(const std::string& topic, const google::protobuf::Message& message);
 
+    /// Publish an already-serialized protobuf payload with explicit type name
+    void publish_serialized(
+        const std::string& topic,
+        const std::string& type_full_name,
+        const std::string& payload
+    );
+
     /// Typed convenience publisher
     template <typename ProtoT>
     void publish(const std::string& topic, const ProtoT& message) {
