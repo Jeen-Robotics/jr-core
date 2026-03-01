@@ -281,7 +281,8 @@ impl Middleware {
     /// Get access to the underlying TopicRegistry
     ///
     /// This is primarily for FFI use cases where direct access to
-    /// the registry is needed.
+    /// the registry is needed. Not intended for general use.
+    #[doc(hidden)]
     pub fn topics(&self) -> &TopicRegistry {
         &self.topics
     }

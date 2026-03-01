@@ -2,6 +2,8 @@
 //!
 //! Uses a polling API for subscribers instead of callbacks (CXX limitation).
 //! C++ code calls `subscriber_try_recv()` to poll for messages.
+//!
+//! Messages are passed as serialized bytes for cross-language compatibility.
 
 use std::sync::Arc;
 
@@ -18,8 +20,9 @@ static MIDDLEWARE: OnceCell<Arc<MiddlewareHandle>> = OnceCell::new();
 /// Handle that owns the middleware and tokio runtime
 struct MiddlewareHandle {
     middleware: Middleware,
-    #[allow(dead_code)]
-    runtime: Runtime,
+    /// Keeps the tokio runtime alive for the lifetime of the middleware.
+    /// Must not be dropped while the middleware is active.
+    _runtime: Runtime,
 }
 
 /// Get or initialize the global middleware
@@ -28,7 +31,7 @@ fn get_middleware() -> &'static Arc<MiddlewareHandle> {
         let runtime = Runtime::new().expect("Failed to create tokio runtime");
         Arc::new(MiddlewareHandle {
             middleware: Middleware::new(),
-            runtime,
+            _runtime: runtime,
         })
     })
 }
@@ -36,15 +39,15 @@ fn get_middleware() -> &'static Arc<MiddlewareHandle> {
 /// Publisher handle for C++
 pub struct RustPublisher {
     topic: String,
-    #[allow(dead_code)]
-    qos: Qos,
 }
 
 /// Subscriber handle for C++ (polling-based)
 pub struct RustSubscriber {
     topic: String,
-    receiver: broadcast::Receiver<Arc<Vec<u8>>>,
+    receiver: Option<broadcast::Receiver<Arc<Vec<u8>>>>,
     qos: Qos,
+    /// Error message if creation failed
+    error: Option<String>,
 }
 
 #[cxx::bridge(namespace = "jr::mw")]
@@ -73,10 +76,12 @@ pub mod ffi {
         pub has_message: bool,
         /// The message data (empty if no message)
         pub data: Vec<u8>,
-        /// True if the channel is closed
+        /// True if the channel is closed or subscriber is invalid
         pub closed: bool,
         /// Number of messages that were skipped (lagged)
         pub lagged: u64,
+        /// Error message (non-empty if an error occurred)
+        pub error_msg: String,
     }
 
     extern "Rust" {
@@ -86,21 +91,22 @@ pub mod ffi {
 
         // Middleware lifecycle
         fn middleware_init() -> bool;
-        fn middleware_shutdown();
 
         // Publisher API
         fn create_publisher(topic: &str, qos: QosKind, capacity: usize) -> Box<RustPublisher>;
         fn publish_bytes(publisher: &RustPublisher, data: &[u8]) -> PublishResult;
 
         // Subscriber API (polling-based)
-        fn create_subscriber(topic: &str, qos: QosKind, capacity: usize)
-            -> Box<RustSubscriber>;
+        fn create_subscriber(topic: &str, qos: QosKind, capacity: usize) -> Box<RustSubscriber>;
         fn subscriber_try_recv(subscriber: &mut RustSubscriber) -> RecvResult;
         fn subscriber_topic(subscriber: &RustSubscriber) -> String;
+        fn subscriber_is_valid(subscriber: &RustSubscriber) -> bool;
 
         // Utilities
         fn topic_exists(topic: &str) -> bool;
         fn list_topics() -> Vec<String>;
+        /// Returns the number of FFI (Vec<u8>) subscribers on this topic.
+        /// Rust-native typed subscribers are not counted.
         fn subscriber_count(topic: &str) -> usize;
     }
 }
@@ -122,26 +128,24 @@ fn middleware_init() -> bool {
     true
 }
 
-/// Shutdown the middleware
-///
-/// Note: Due to static lifetime, actual cleanup happens at process exit.
-/// This function is provided for explicit lifecycle management.
-fn middleware_shutdown() {
-    // OnceCell doesn't support reset, so this is a no-op for now.
-    // The middleware will be cleaned up when the process exits.
-}
-
 /// Create a publisher for a topic
 fn create_publisher(topic: &str, qos: QosKind, capacity: usize) -> Box<RustPublisher> {
     let qos = qos_from_ffi(qos, capacity);
-    
-    // Ensure topic exists
+
+    // Ensure topic exists with correct type and QoS
     let handle = get_middleware();
-    let _ = handle.middleware.subscribe_with_qos::<Vec<u8>>(topic, qos);
-    
+    if handle
+        .middleware
+        .topics()
+        .get_or_create_sender_with_qos::<Vec<u8>>(topic, qos)
+        .is_none()
+    {
+        // Type mismatch - topic exists with different type
+        // Publisher will fail on first publish
+    }
+
     Box::new(RustPublisher {
         topic: topic.to_string(),
-        qos,
     })
 }
 
@@ -149,7 +153,7 @@ fn create_publisher(topic: &str, qos: QosKind, capacity: usize) -> Box<RustPubli
 fn publish_bytes(publisher: &RustPublisher, data: &[u8]) -> PublishResult {
     let handle = get_middleware();
 
-    // Create a Vec from the data (this is a copy, unavoidable for FFI)
+    // Create a Vec from the data (copy required for FFI boundary)
     let msg = Arc::new(data.to_vec());
 
     match handle.middleware.publish(&publisher.topic, msg) {
@@ -167,34 +171,71 @@ fn publish_bytes(publisher: &RustPublisher, data: &[u8]) -> PublishResult {
 }
 
 /// Create a subscriber for a topic (polling-based)
+///
+/// Returns a subscriber handle. Check `subscriber_is_valid()` before use.
+/// If creation failed (e.g., type mismatch), the subscriber will be invalid
+/// and `subscriber_try_recv()` will return an error.
 fn create_subscriber(topic: &str, qos: QosKind, capacity: usize) -> Box<RustSubscriber> {
     let handle = get_middleware();
     let qos = qos_from_ffi(qos, capacity);
 
-    // Get the underlying broadcast receiver directly from TopicRegistry
-    let receiver = handle
+    // Try to subscribe - this may fail if topic exists with different type
+    match handle
         .middleware
         .topics()
         .subscribe_with_qos::<Vec<u8>>(topic, qos)
-        .expect("Failed to create subscriber");
+    {
+        Some(receiver) => Box::new(RustSubscriber {
+            topic: topic.to_string(),
+            receiver: Some(receiver),
+            qos,
+            error: None,
+        }),
+        None => Box::new(RustSubscriber {
+            topic: topic.to_string(),
+            receiver: None,
+            qos,
+            error: Some(format!(
+                "Failed to subscribe to '{}': topic exists with different type",
+                topic
+            )),
+        }),
+    }
+}
 
-    Box::new(RustSubscriber {
-        topic: topic.to_string(),
-        receiver,
-        qos,
-    })
+/// Check if a subscriber is valid (was created successfully)
+fn subscriber_is_valid(subscriber: &RustSubscriber) -> bool {
+    subscriber.receiver.is_some()
 }
 
 /// Try to receive a message without blocking
 fn subscriber_try_recv(subscriber: &mut RustSubscriber) -> RecvResult {
+    // Check if subscriber is valid
+    let receiver = match &mut subscriber.receiver {
+        Some(r) => r,
+        None => {
+            return RecvResult {
+                has_message: false,
+                data: Vec::new(),
+                closed: true,
+                lagged: 0,
+                error_msg: subscriber
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "Invalid subscriber".to_string()),
+            };
+        }
+    };
+
     loop {
-        match subscriber.receiver.try_recv() {
+        match receiver.try_recv() {
             Ok(msg) => {
                 return RecvResult {
                     has_message: true,
                     data: (*msg).clone(),
                     closed: false,
                     lagged: 0,
+                    error_msg: String::new(),
                 };
             }
             Err(broadcast::error::TryRecvError::Empty) => {
@@ -203,6 +244,7 @@ fn subscriber_try_recv(subscriber: &mut RustSubscriber) -> RecvResult {
                     data: Vec::new(),
                     closed: false,
                     lagged: 0,
+                    error_msg: String::new(),
                 };
             }
             Err(broadcast::error::TryRecvError::Lagged(n)) => {
@@ -215,6 +257,7 @@ fn subscriber_try_recv(subscriber: &mut RustSubscriber) -> RecvResult {
                     data: Vec::new(),
                     closed: false,
                     lagged: n,
+                    error_msg: String::new(),
                 };
             }
             Err(broadcast::error::TryRecvError::Closed) => {
@@ -223,6 +266,7 @@ fn subscriber_try_recv(subscriber: &mut RustSubscriber) -> RecvResult {
                     data: Vec::new(),
                     closed: true,
                     lagged: 0,
+                    error_msg: String::new(),
                 };
             }
         }
@@ -245,6 +289,9 @@ fn list_topics() -> Vec<String> {
 }
 
 /// Get subscriber count for a topic (returns 0 if topic doesn't exist)
+///
+/// Note: This counts only FFI (Vec<u8>) subscribers. Rust-native typed
+/// subscribers on the same topic name but different type are not counted.
 fn subscriber_count(topic: &str) -> usize {
     get_middleware()
         .middleware
@@ -266,62 +313,83 @@ mod tests {
     fn test_publish_subscribe_polling() {
         middleware_init();
 
-        let mut sub = create_subscriber("poll_test", QosKind::KeepLast, 16);
-        let pub_ = create_publisher("poll_test", QosKind::KeepLast, 16);
+        let mut sub = create_subscriber("ffi_poll_test", QosKind::KeepLast, 16);
+        assert!(subscriber_is_valid(&sub));
+
+        let pub_ = create_publisher("ffi_poll_test", QosKind::KeepLast, 16);
 
         // Nothing to receive yet
         let result = subscriber_try_recv(&mut sub);
         assert!(!result.has_message);
         assert!(!result.closed);
+        assert!(result.error_msg.is_empty());
 
         // Publish a message
-        let publish_result = publish_bytes(&pub_, b"hello from rust");
+        let publish_result = publish_bytes(&pub_, b"hello from rust ffi");
         assert!(publish_result.success);
         assert!(publish_result.receivers >= 1);
 
         // Now we should receive it
         let result = subscriber_try_recv(&mut sub);
         assert!(result.has_message);
-        assert_eq!(result.data, b"hello from rust");
+        assert_eq!(result.data, b"hello from rust ffi");
     }
 
     #[test]
     fn test_sensor_data_qos_polling() {
         middleware_init();
 
-        let mut sub = create_subscriber("sensor_poll", QosKind::SensorData, 1);
-        let pub_ = create_publisher("sensor_poll", QosKind::SensorData, 1);
+        let mut sub = create_subscriber("ffi_sensor_poll", QosKind::SensorData, 1);
+        assert!(subscriber_is_valid(&sub));
 
-        // Publish multiple messages rapidly
+        let pub_ = create_publisher("ffi_sensor_poll", QosKind::SensorData, 1);
+
+        // Publish multiple messages rapidly (capacity=1, so older ones are dropped)
         for i in 0..10u8 {
             publish_bytes(&pub_, &[i]);
         }
 
-        // SensorData should give us the latest, skipping lagged
+        // SensorData should give us the latest message (9)
         let result = subscriber_try_recv(&mut sub);
         assert!(result.has_message);
-        // Should get one of the later messages (exact value depends on timing)
-        assert!(result.data[0] >= 5); // At least message 5 or later
+        assert_eq!(result.data[0], 9); // Must be exactly the last message
     }
 
     #[test]
     fn test_topic_utilities() {
         middleware_init();
 
-        let _pub = create_publisher("util_test2", QosKind::KeepLast, 16);
-        
-        // Need to create subscriber to register topic
-        let _sub = create_subscriber("util_test2", QosKind::KeepLast, 16);
+        let _pub = create_publisher("ffi_util_test", QosKind::KeepLast, 16);
+        let _sub = create_subscriber("ffi_util_test", QosKind::KeepLast, 16);
 
-        assert!(topic_exists("util_test2"));
-        assert!(list_topics().contains(&"util_test2".to_string()));
-        assert!(subscriber_count("util_test2") >= 1);
+        assert!(topic_exists("ffi_util_test"));
+        assert!(list_topics().contains(&"ffi_util_test".to_string()));
+        assert!(subscriber_count("ffi_util_test") >= 1);
     }
 
     #[test]
     fn test_subscriber_topic_name() {
         middleware_init();
-        let sub = create_subscriber("name_test", QosKind::KeepLast, 16);
-        assert_eq!(subscriber_topic(&sub), "name_test");
+        let sub = create_subscriber("ffi_name_test", QosKind::KeepLast, 16);
+        assert_eq!(subscriber_topic(&sub), "ffi_name_test");
+    }
+
+    #[test]
+    fn test_invalid_subscriber_returns_error() {
+        middleware_init();
+
+        // Create a topic with one type (via native Rust)
+        let mw = &get_middleware().middleware;
+        let _ = mw.subscribe_with_qos::<String>("ffi_type_conflict", Qos::default());
+
+        // Try to create FFI subscriber with Vec<u8> type - should fail
+        let mut sub = create_subscriber("ffi_type_conflict", QosKind::KeepLast, 16);
+        assert!(!subscriber_is_valid(&sub));
+
+        // try_recv should return error
+        let result = subscriber_try_recv(&mut sub);
+        assert!(!result.has_message);
+        assert!(result.closed);
+        assert!(!result.error_msg.is_empty());
     }
 }
