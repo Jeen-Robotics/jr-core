@@ -281,8 +281,7 @@ impl Middleware {
     /// Subscribe to a topic with raw bytes type (for FFI)
     ///
     /// Returns the underlying broadcast receiver for polling-based FFI use.
-    #[doc(hidden)]
-    pub fn subscribe_raw(
+    pub(crate) fn subscribe_raw(
         &self,
         topic: &str,
         qos: Qos,
@@ -293,8 +292,7 @@ impl Middleware {
     /// Get or create a sender for raw bytes type (for FFI)
     ///
     /// Returns the underlying broadcast sender for cached publishing.
-    #[doc(hidden)]
-    pub fn get_or_create_sender_raw(
+    pub(crate) fn get_or_create_sender_raw(
         &self,
         topic: &str,
         qos: Qos,

@@ -35,6 +35,4 @@ fn main() {
     cxx_build::bridge("src/ffi/bridge.rs")
         .std("c++17")
         .compile("middleware_rs_cxx");
-
-    println!("cargo:rerun-if-changed=src/ffi/mod.rs");
 }

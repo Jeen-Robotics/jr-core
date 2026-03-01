@@ -46,8 +46,6 @@ fn get_middleware() -> &'static Arc<MiddlewareHandle> {
 ///
 /// Caches the broadcast sender for efficient high-frequency publishing.
 pub struct RustPublisher {
-    #[allow(dead_code)] // Kept for debugging/logging
-    topic: String,
     /// Cached sender for zero-lookup publishing
     sender: Option<broadcast::Sender<Arc<Vec<u8>>>>,
     /// Error message if creation failed (e.g., type mismatch)
@@ -163,12 +161,10 @@ fn create_publisher(topic: &str, qos: QosKind, capacity: usize) -> Box<RustPubli
         .get_or_create_sender_raw(topic, qos)
     {
         Some(sender) => Box::new(RustPublisher {
-            topic: topic.to_string(),
             sender: Some(sender),
             error: None,
         }),
         None => Box::new(RustPublisher {
-            topic: topic.to_string(),
             sender: None,
             error: Some(format!(
                 "Failed to create publisher for '{}': topic exists with different type",
@@ -210,9 +206,9 @@ fn publish_bytes(publisher: &RustPublisher, data: &[u8]) -> PublishResult {
             error_msg: String::new(),
         },
         Err(_) => PublishResult {
-            success: true,  // Send "succeeded" but no receivers
+            success: false,
             receivers: 0,
-            error_msg: String::new(),
+            error_msg: "No active receivers on topic".to_string(),
         },
     }
 }
@@ -330,13 +326,16 @@ fn subscriber_try_recv(subscriber: &mut RustSubscriber) -> RecvResult {
         }
     }
 
-    // Max retries exhausted for SensorData - return lagged result
+    // Max retries exhausted for SensorData - return lagged result with warning
     RecvResult {
         has_message: false,
         data: Vec::new(),
         closed: false,
         lagged: last_lagged,
-        error_msg: String::new(),
+        error_msg: format!(
+            "SensorData lag retry limit ({}) reached, channel overloaded",
+            SENSOR_DATA_MAX_RETRIES
+        ),
     }
 }
 
