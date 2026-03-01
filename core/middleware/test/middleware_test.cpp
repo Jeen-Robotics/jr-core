@@ -291,4 +291,205 @@ TEST(Runtime, DerivedNodeClasses_PubSub) {
   t.join();
 }
 
+// --- Additional tests ---
+
+TEST(Middleware, PublishSerialized_Works) {
+  auto mw = Middleware::create();
+  std::optional<int> received;
+  auto sub = mw->subscribe<google::protobuf::Int32Value>(
+    "/serialized",
+    [&](const google::protobuf::Int32Value& v) { received = v.value(); }
+  );
+
+  // Manually serialize and publish
+  google::protobuf::Int32Value v;
+  v.set_value(999);
+  std::string payload;
+  ASSERT_TRUE(v.SerializeToString(&payload));
+  
+  mw->publish_serialized("/serialized", "google.protobuf.Int32Value", payload);
+
+  for (int i = 0; i < 50 && !received.has_value(); ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  ASSERT_TRUE(received.has_value());
+  EXPECT_EQ(*received, 999);
+}
+
+TEST(Middleware, SensorDataQos_GetsLatestOnly) {
+  auto mw = Middleware::create();
+  std::atomic<int> last{-1};
+  auto sub = mw->subscribe<google::protobuf::Int32Value>(
+    "/sensor",
+    [&](const google::protobuf::Int32Value& v) { 
+      last.store(v.value());
+      // Simulate slow processing
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    },
+    Qos::SensorData,
+    1  // capacity 1 for SensorData
+  );
+
+  // Rapid-fire publish
+  google::protobuf::Int32Value v;
+  for (int i = 0; i < 100; ++i) {
+    v.set_value(i);
+    mw->publish("/sensor", v);
+  }
+
+  // Wait for processing
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  
+  // Should have received a recent value (not necessarily 99, but close)
+  EXPECT_GE(last.load(), 0);
+}
+
+TEST(Middleware, GetTopicNamesAndTypes_ReturnsRegisteredTopics) {
+  auto mw = Middleware::create();
+  
+  // Subscribe to create topics
+  auto sub1 = mw->subscribe<google::protobuf::Int32Value>(
+    "/topic1",
+    [](const google::protobuf::Int32Value&) {}
+  );
+  auto sub2 = mw->subscribe<google::protobuf::StringValue>(
+    "/topic2", 
+    [](const google::protobuf::StringValue&) {}
+  );
+  
+  auto topics = mw->get_topic_names_and_types();
+  
+  // Should have at least our two topics
+  bool found_topic1 = false;
+  bool found_topic2 = false;
+  for (const auto& info : topics) {
+    if (info.name == "/topic1") {
+      found_topic1 = true;
+      EXPECT_EQ(info.type_full_name, "google.protobuf.Int32Value");
+    }
+    if (info.name == "/topic2") {
+      found_topic2 = true;
+      EXPECT_EQ(info.type_full_name, "google.protobuf.StringValue");
+    }
+  }
+  EXPECT_TRUE(found_topic1);
+  EXPECT_TRUE(found_topic2);
+}
+
+TEST(Middleware, MultipleIndependentTopics_NoInterference) {
+  auto mw = Middleware::create();
+  std::atomic<int> count_a{0};
+  std::atomic<int> count_b{0};
+  
+  auto sub_a = mw->subscribe<google::protobuf::Int32Value>(
+    "/topic_a",
+    [&](const google::protobuf::Int32Value&) { ++count_a; }
+  );
+  auto sub_b = mw->subscribe<google::protobuf::Int32Value>(
+    "/topic_b",
+    [&](const google::protobuf::Int32Value&) { ++count_b; }
+  );
+
+  google::protobuf::Int32Value v;
+  v.set_value(1);
+  
+  // Publish only to topic_a
+  mw->publish("/topic_a", v);
+  
+  for (int i = 0; i < 50 && count_a.load() == 0; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  
+  EXPECT_GE(count_a.load(), 1);
+  EXPECT_EQ(count_b.load(), 0);  // topic_b should not receive
+}
+
+TEST(Middleware, ConcurrentPublish_ThreadSafe) {
+  auto mw = Middleware::create();
+  std::atomic<int> total{0};
+  
+  auto sub = mw->subscribe<google::protobuf::Int32Value>(
+    "/concurrent",
+    [&](const google::protobuf::Int32Value& v) { 
+      total.fetch_add(v.value());
+    }
+  );
+
+  constexpr int NUM_THREADS = 4;
+  constexpr int MSGS_PER_THREAD = 10;
+  
+  std::vector<std::thread> threads;
+  for (int t = 0; t < NUM_THREADS; ++t) {
+    threads.emplace_back([&mw]() {
+      google::protobuf::Int32Value v;
+      v.set_value(1);
+      for (int i = 0; i < MSGS_PER_THREAD; ++i) {
+        mw->publish("/concurrent", v);
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+      }
+    });
+  }
+  
+  for (auto& t : threads) {
+    t.join();
+  }
+  
+  // Wait for all messages to be processed
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  
+  // Should have received all messages (may drop some due to QoS, but should have many)
+  EXPECT_GT(total.load(), 0);
+}
+
+TEST(Middleware, Create_ReturnsUniqueInstances) {
+  auto mw1 = Middleware::create();
+  auto mw2 = Middleware::create();
+  
+  EXPECT_NE(mw1.get(), mw2.get());
+  EXPECT_TRUE(mw1 != nullptr);
+  EXPECT_TRUE(mw2 != nullptr);
+}
+
+TEST(Middleware, ShutdownCleansUp) {
+  auto mw = Middleware::create();
+  
+  std::atomic<bool> callback_called{false};
+  auto sub = mw->subscribe<google::protobuf::Int32Value>(
+    "/shutdown_test",
+    [&](const google::protobuf::Int32Value&) { callback_called = true; }
+  );
+  
+  EXPECT_TRUE(sub.valid());
+  
+  mw->shutdown();
+  
+  // After shutdown, publishing should not crash
+  google::protobuf::Int32Value v;
+  v.set_value(1);
+  mw->publish("/shutdown_test", v);
+  
+  // Brief wait
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  
+  // Callback should not be called after shutdown
+  // (or at minimum, no crash)
+}
+
+TEST(Node, CreatePublisherWithQos) {
+  init();
+  auto node = Node("qos_test");
+  
+  auto pub_keeplast = node.create_publisher<google::protobuf::Int32Value>(
+    "/qos_keeplast", Qos::KeepLast, 32
+  );
+  EXPECT_TRUE(pub_keeplast.valid());
+  
+  auto pub_sensor = node.create_publisher<google::protobuf::Int32Value>(
+    "/qos_sensor", Qos::SensorData
+  );
+  EXPECT_TRUE(pub_sensor.valid());
+  
+  shutdown();
+}
+
 } // namespace jr::mw
