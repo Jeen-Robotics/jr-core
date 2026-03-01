@@ -49,6 +49,8 @@ target_compile_features(middleware_rs_cpp PUBLIC cxx_std_17)
 
 # Example executable (optional, only built with tests)
 if(BUILD_TESTS)
+    find_package(jr_msgs CONFIG REQUIRED)
+    
     add_executable(middleware_rs_example
         examples/basic_usage.cpp
     )
@@ -56,6 +58,6 @@ if(BUILD_TESTS)
     target_link_libraries(middleware_rs_example
         PRIVATE
             middleware_rs_cpp
-            jr_msgs_proto  # For test protos
+            jr_msgs::jr_msgs
     )
 endif()

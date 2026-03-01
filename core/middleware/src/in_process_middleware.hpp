@@ -2,6 +2,7 @@
 
 #include <middleware/middleware.hpp>
 
+#include <condition_variable>
 #include <deque>
 #include <thread>
 #include <unordered_map>

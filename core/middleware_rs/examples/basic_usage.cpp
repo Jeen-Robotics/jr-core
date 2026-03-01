@@ -7,11 +7,8 @@
 
 #include <middleware_rs/middleware.hpp>
 
-// Include your protobuf messages here
-// #include <my_msgs/sensor_data.pb.h>
-
-// For this example, we'll use a simple test proto
-#include <jr_msgs/test/int32.pb.h>
+// Include protobuf messages from jr_msgs
+#include <std_msgs.pb.h>
 
 #include <iostream>
 #include <thread>
@@ -31,15 +28,15 @@ int main() {
     std::cout << "=== Example 1: Callback-based subscription ===" << std::endl;
     
     // Create a subscriber with callback
-    auto sub = jr::mw::subscribe<jr::test::Int32>(
+    auto sub = jr::mw::subscribe<std_msgs::Int32>(
         "example/counter",
-        [](const jr::test::Int32& msg) {
+        [](const std_msgs::Int32& msg) {
             std::cout << "Received: " << msg.data() << std::endl;
         }
     );
     
     // Create a publisher
-    auto pub = jr::mw::advertise<jr::test::Int32>("example/counter");
+    auto pub = jr::mw::advertise<std_msgs::Int32>("example/counter");
     
     if (!pub) {
         std::cerr << "Failed to create publisher" << std::endl;
@@ -48,7 +45,7 @@ int main() {
     
     // Publish some messages
     for (int i = 0; i < 5; ++i) {
-        jr::test::Int32 msg;
+        std_msgs::Int32 msg;
         msg.set_data(i);
         pub.publish(msg);
         
@@ -64,14 +61,14 @@ int main() {
     
     std::cout << "\n=== Example 2: Polling-based subscription ===" << std::endl;
     
-    auto poll_sub = jr::mw::subscribe<jr::test::Int32>(
+    auto poll_sub = jr::mw::subscribe<std_msgs::Int32>(
         "example/poll_topic"
     );
     
-    auto poll_pub = jr::mw::advertise<jr::test::Int32>("example/poll_topic");
+    auto poll_pub = jr::mw::advertise<std_msgs::Int32>("example/poll_topic");
     
     // Publish a message
-    jr::test::Int32 poll_msg;
+    std_msgs::Int32 poll_msg;
     poll_msg.set_data(42);
     poll_pub.publish(poll_msg);
     
@@ -89,19 +86,19 @@ int main() {
     
     std::cout << "\n=== Example 3: SensorData QoS ===" << std::endl;
     
-    auto sensor_sub = jr::mw::subscribe<jr::test::Int32>(
+    auto sensor_sub = jr::mw::subscribe<std_msgs::Int32>(
         "example/sensor",
         jr::mw::Qos::SensorData
     );
     
-    auto sensor_pub = jr::mw::advertise<jr::test::Int32>(
+    auto sensor_pub = jr::mw::advertise<std_msgs::Int32>(
         "example/sensor",
         jr::mw::Qos::SensorData
     );
     
     // Rapid publishing - some messages may be dropped (that's expected with SensorData)
     for (int i = 0; i < 100; ++i) {
-        jr::test::Int32 msg;
+        std_msgs::Int32 msg;
         msg.set_data(i);
         sensor_pub.publish(msg);
     }
@@ -123,8 +120,8 @@ int main() {
 #ifdef __linux__
     std::cout << "\n=== Example 4: eventfd-based waiting ===" << std::endl;
     
-    auto wait_sub = jr::mw::subscribe<jr::test::Int32>("example/wait");
-    auto wait_pub = jr::mw::advertise<jr::test::Int32>("example/wait");
+    auto wait_sub = jr::mw::subscribe<std_msgs::Int32>("example/wait");
+    auto wait_pub = jr::mw::advertise<std_msgs::Int32>("example/wait");
     
     // Check we have a valid fd
     int fd = wait_sub.get_fd();
@@ -134,7 +131,7 @@ int main() {
         // Start a thread that publishes after a delay
         std::thread publisher([&wait_pub]() {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            jr::test::Int32 msg;
+            std_msgs::Int32 msg;
             msg.set_data(999);
             wait_pub.publish(msg);
         });
