@@ -1,40 +1,18 @@
 #pragma once
 
-#include <middleware/middleware.hpp>
+/// @file publisher.hpp
+/// @brief Typed publisher for protobuf messages
+///
+/// Re-exports the Publisher from middleware_rs for backward compatibility.
 
-#include <memory>
-#include <string>
+#include <middleware_rs/publisher.hpp>
+
+// The Publisher<T> class is now provided by middleware_rs.
+// This header exists for backward compatibility with existing code
+// that includes <middleware/publisher.hpp>.
 
 namespace jr::mw {
 
-template <typename ProtoT>
-class Publisher {
-public:
-  Publisher() = default;
-
-  explicit Publisher(std::string topic)
-      : topic_(std::move(topic))
-      , owner_(get()) {
-  }
-
-  Publisher(std::string topic, std::weak_ptr<Middleware> owner)
-      : topic_(std::move(topic))
-      , owner_(std::move(owner)) {
-  }
-
-  void publish(const ProtoT& message) const {
-    if (auto owner = owner_.lock()) {
-      owner->publish(topic_, message);
-    }
-  }
-
-  bool valid() const noexcept {
-    return !topic_.empty() && !owner_.expired();
-  }
-
-private:
-  std::string topic_;
-  std::weak_ptr<Middleware> owner_;
-};
+// Publisher<T> is already defined in jr::mw namespace by middleware_rs/publisher.hpp
 
 } // namespace jr::mw

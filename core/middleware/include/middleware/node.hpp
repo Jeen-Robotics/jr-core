@@ -1,52 +1,80 @@
 #pragma once
 
+/// @file node.hpp
+/// @brief ROS-like Node abstraction for pub/sub
+
 #include <middleware/middleware.hpp>
-#include <middleware/publisher.hpp>
 #include <middleware/subscription.hpp>
+#include <middleware_rs/middleware.hpp>  // For advertise<T>
+
+#include <google/protobuf/message.h>
+
+#include <functional>
+#include <memory>
+#include <string>
 
 namespace jr::mw {
 
+/// ROS-like Node abstraction
+/// 
+/// Provides a convenient interface for creating publishers and subscribers
+/// within a named context.
 class Node {
 public:
-  virtual ~Node() = default;
+    virtual ~Node() = default;
 
-  explicit Node(std::string node_name);
-  explicit Node(std::string node_name, std::shared_ptr<Middleware> mw);
+    /// Create a node with the given name
+    explicit Node(std::string node_name);
+    
+    /// Create a node with explicit middleware reference
+    Node(std::string node_name, std::shared_ptr<Middleware> mw);
 
-  virtual void spin_once();
+    /// Called periodically by spin()
+    /// Override to implement periodic processing
+    virtual void spin_once();
 
-  const std::string& name() const noexcept;
+    /// Get node name
+    const std::string& name() const noexcept;
 
-  template <typename ProtoT>
-  Publisher<ProtoT> create_publisher(const std::string& topic) {
-    return Publisher<ProtoT>{topic, mw_};
-  }
+    /// Create a typed publisher
+    template <typename ProtoT>
+    Publisher<ProtoT> create_publisher(
+        const std::string& topic,
+        Qos qos = Qos::KeepLast,
+        std::size_t capacity = 16
+    ) {
+        // Use the global advertise function from middleware_rs
+        return advertise<ProtoT>(topic, qos, capacity);
+    }
 
-  template <typename ProtoT>
-  Subscription create_subscription(
-    const std::string& topic,
-    std::function<void(const ProtoT&)> callback
-  ) {
-    return mw_->subscribe<ProtoT>(topic, std::move(callback));
-  }
+    /// Create a typed subscription with callback
+    template <typename ProtoT>
+    Subscription create_subscription(
+        const std::string& topic,
+        std::function<void(const ProtoT&)> callback
+    ) {
+        return mw_->subscribe<ProtoT>(topic, std::move(callback));
+    }
 
-  Subscription create_dynamic_subscription(
-    const std::string& topic,
-    const std::string& type_full_name,
-    std::function<void(const google::protobuf::Message&)> callback
-  ) const;
+    /// Create a dynamic subscription by type name
+    Subscription create_dynamic_subscription(
+        const std::string& topic,
+        const std::string& type_full_name,
+        std::function<void(const google::protobuf::Message&)> callback
+    ) const;
 
-  Subscription create_subscription_any(
-    const std::string& topic,
-    std::function<void(const std::string&, const google::protobuf::Message&)>
-      callback
-  ) const;
+    /// Create a subscription for all message types on a topic
+    Subscription create_subscription_any(
+        const std::string& topic,
+        std::function<void(const std::string&, const google::protobuf::Message&)> callback
+    ) const;
 
-  virtual bool valid() const noexcept;
+    /// Check if node is valid
+    virtual bool valid() const noexcept;
 
 private:
-  std::string node_name_{};
-  std::shared_ptr<Middleware> mw_{};
+    std::string node_name_;
+    std::shared_ptr<Middleware> mw_;
 };
 
 } // namespace jr::mw
