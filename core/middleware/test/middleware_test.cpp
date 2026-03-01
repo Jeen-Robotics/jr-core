@@ -14,10 +14,10 @@ namespace jr::mw {
 
 TEST(Middleware, PublishSubscribe_DeliversLatest) {
   auto mw = Middleware::create();
-  std::optional<int> received;
+  std::atomic<int> received{-1};
   auto sub = mw->subscribe<google::protobuf::Int32Value>(
     "/int",
-    [&](const google::protobuf::Int32Value& v) { received = v.value(); }
+    [&](const google::protobuf::Int32Value& v) { received.store(v.value()); }
   );
 
   google::protobuf::Int32Value v;
@@ -28,11 +28,12 @@ TEST(Middleware, PublishSubscribe_DeliversLatest) {
   v.set_value(3);
   mw->publish("/int", v);
 
-  for (int i = 0; i < 50 && !received.has_value(); ++i) {
+  // Wait specifically for value 3 (the latest)
+  // With KeepLast QoS, all messages are delivered but we want to see 3 eventually
+  for (int i = 0; i < 100 && received.load() != 3; ++i) {
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   }
-  ASSERT_TRUE(received.has_value());
-  EXPECT_EQ(*received, 3);
+  EXPECT_EQ(received.load(), 3);
 }
 
 TEST(Middleware, Unsubscribe_StopsDelivery) {
