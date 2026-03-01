@@ -5,6 +5,9 @@ add_subdirectory(imgproc)
 if(NOT ANDROID)
     add_subdirectory(middleware_rs)
     add_subdirectory(middleware)
+else()
+    message(WARNING "Middleware is not available on Android (Rust toolchain required). "
+                    "Targets depending on jr_middleware will fail to link.")
 endif()
 
 # Optional modules that require additional dependencies

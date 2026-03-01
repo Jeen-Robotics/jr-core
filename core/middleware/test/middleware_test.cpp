@@ -470,10 +470,10 @@ TEST(Middleware, ShutdownCleansUp) {
   mw->publish("/shutdown_test", v);
   
   // Brief wait
-  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
   
   // Callback should not be called after shutdown
-  // (or at minimum, no crash)
+  EXPECT_FALSE(callback_called.load());
 }
 
 TEST(Node, CreatePublisherWithQos) {

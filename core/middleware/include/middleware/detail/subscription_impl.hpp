@@ -31,6 +31,11 @@ public:
     {}
 
     bool spin_once() override {
+        // Check if cancelled before processing
+        if (is_cancelled()) {
+            return false;
+        }
+        
         auto msg = sub_.try_recv();
         if (msg && callback_) {
             callback_(*msg);

@@ -41,8 +41,8 @@ Subscription Middleware::do_subscribe_typed(
         id = next_id_++;
     }
 
-    // Wrap in type-erased subscription
-    auto impl = std::make_unique<detail::SubscriptionImpl<ProtoT>>(
+    // Wrap in type-erased subscription (use shared_ptr for safe concurrent access)
+    auto impl = std::make_shared<detail::SubscriptionImpl<ProtoT>>(
         std::move(sub),
         std::move(callback)
     );

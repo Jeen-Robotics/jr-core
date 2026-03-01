@@ -5,6 +5,10 @@
 ///
 /// Provides a familiar Node-based API similar to ROS, with automatic
 /// message dispatch via background threads.
+///
+/// @note The Rust backend uses a global singleton (OnceCell). All Middleware
+///       instances share the same underlying transport. This means topics
+///       are globally visible across all Middleware instances.
 
 #include <middleware/subscription.hpp>
 #include <middleware_rs/fwd.hpp>  // For Qos enum
@@ -90,20 +94,12 @@ public:
         return do_subscribe_typed<ProtoT>(topic, type_full_name, std::move(callback), qos, capacity);
     }
 
-    /// Subscribe dynamically by type name
-    Subscription subscribe(
-        const std::string& topic,
-        const std::string& type_full_name,
-        std::function<void(const google::protobuf::Message&)> callback
-    );
+    // Dynamic subscription methods are not implemented in this version.
+    // Use the typed subscribe<ProtoT>() template instead.
+    // subscribe(topic, type_name, callback) = delete
+    // subscribe_any(topic, callback) = delete
 
-    /// Subscribe to all messages on a topic regardless of type
-    Subscription subscribe_any(
-        const std::string& topic,
-        std::function<void(const std::string&, const google::protobuf::Message&)> callback
-    );
-
-    /// Get topic names and types
+    /// Get topic names and types (C++ registry only, not Rust backend)
     std::vector<TopicInfo> get_topic_names_and_types() const;
 
     /// Factory method
@@ -124,7 +120,7 @@ private:
         std::size_t capacity
     );
 
-    Subscription make_subscription(std::uint64_t id, std::unique_ptr<detail::SubscriptionBase> impl);
+    Subscription make_subscription(std::uint64_t id, std::shared_ptr<detail::SubscriptionBase> impl);
     void unregister_subscription(std::uint64_t id);
     bool subscription_valid(std::uint64_t id) const;
     
@@ -132,9 +128,10 @@ private:
     void ensure_dispatcher();
 
     mutable std::mutex mutex_;
-    std::unordered_map<std::uint64_t, std::unique_ptr<detail::SubscriptionBase>> subscriptions_;
+    // Use shared_ptr to allow safe concurrent access during dispatch
+    std::unordered_map<std::uint64_t, std::shared_ptr<detail::SubscriptionBase>> subscriptions_;
     std::unordered_map<std::string, std::string> topic_types_;  // topic -> type_full_name
-    std::unordered_map<std::string, PublisherPtr> publishers_;  // topic -> cached publisher
+    std::unordered_map<std::string, std::shared_ptr<detail::PublisherImpl>> publishers_;
     std::uint64_t next_id_{1};
     
     std::thread dispatcher_;

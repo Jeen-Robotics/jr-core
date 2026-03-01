@@ -73,7 +73,7 @@ bool Subscription::valid() const noexcept {
 // --- Middleware ---
 
 Middleware::Middleware() {
-    // Initialize Rust backend
+    // Initialize Rust backend (idempotent - Rust uses OnceCell singleton)
     jr::mw::init();
 }
 
@@ -82,7 +82,11 @@ Middleware::~Middleware() {
 }
 
 void Middleware::shutdown() {
-    shutdown_.store(true);
+    // Guard against double shutdown
+    bool expected = false;
+    if (!shutdown_.compare_exchange_strong(expected, true)) {
+        return;  // Already shutdown
+    }
     
     if (dispatcher_.joinable()) {
         dispatcher_.join();
@@ -105,6 +109,7 @@ void Middleware::publish(const std::string& topic, const google::protobuf::Messa
     // Serialize and publish
     std::string data;
     if (!message.SerializeToString(&data)) {
+        std::cerr << "[jr::mw] WARNING: Failed to serialize message for topic: " << topic << std::endl;
         return;
     }
 
@@ -116,8 +121,13 @@ void Middleware::publish_serialized(
     const std::string& type_full_name,
     const std::string& payload
 ) {
-    // Check/register type and get/create cached publisher
-    detail::PublisherImpl* pub_ptr = nullptr;
+    // Check shutdown first
+    if (shutdown_.load()) {
+        return;
+    }
+
+    // Get or create cached publisher under lock, keep shared_ptr alive
+    std::shared_ptr<detail::PublisherImpl> pub_shared;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         
@@ -126,53 +136,34 @@ void Middleware::publish_serialized(
         if (type_it == topic_types_.end()) {
             topic_types_[topic] = type_full_name;
         } else if (type_it->second != type_full_name) {
-            // Type mismatch - silently ignore
+            std::cerr << "[jr::mw] WARNING: Type mismatch for topic " << topic 
+                      << ": expected " << type_it->second << ", got " << type_full_name << std::endl;
             return;
         }
         
         // Get or create cached publisher
         auto pub_it = publishers_.find(topic);
         if (pub_it == publishers_.end()) {
-            auto new_pub = detail::create_publisher_impl(topic, Qos::KeepLast, 16);
+            // Use SensorData QoS for better compatibility with realtime topics
+            auto new_pub = detail::create_publisher_impl(topic, Qos::SensorData, 1);
             if (!new_pub) {
                 return;
             }
-            pub_ptr = new_pub.get();
-            publishers_[topic] = std::move(new_pub);
+            // Convert unique_ptr to shared_ptr for safe concurrent access
+            pub_shared = std::shared_ptr<detail::PublisherImpl>(
+                new_pub.release(), 
+                [](detail::PublisherImpl* p) { detail::delete_publisher_impl(p); }
+            );
+            publishers_[topic] = pub_shared;
         } else {
-            pub_ptr = pub_it->second.get();
+            pub_shared = pub_it->second;
         }
     }
 
-    // Publish outside the lock
-    if (pub_ptr) {
-        detail::publish_impl(pub_ptr, payload.data(), payload.size());
+    // Publish outside the lock - pub_shared keeps publisher alive
+    if (pub_shared) {
+        detail::publish_impl(pub_shared.get(), payload.data(), payload.size());
     }
-}
-
-Subscription Middleware::subscribe(
-    const std::string& topic,
-    const std::string& type_full_name,
-    std::function<void(const google::protobuf::Message&)> callback
-) {
-    // Dynamic subscription requires protobuf reflection/message factory
-    // Not implemented - log warning and return invalid subscription
-    std::cerr << "[jr::mw] WARNING: subscribe(topic, type_name, callback) not implemented. "
-              << "Topic: " << topic << ", Type: " << type_full_name << std::endl;
-    (void)callback;
-    return Subscription{};
-}
-
-Subscription Middleware::subscribe_any(
-    const std::string& topic,
-    std::function<void(const std::string&, const google::protobuf::Message&)> callback
-) {
-    // Any subscription requires protobuf reflection/message factory
-    // Not implemented - log warning and return invalid subscription
-    std::cerr << "[jr::mw] WARNING: subscribe_any() not implemented. "
-              << "Topic: " << topic << std::endl;
-    (void)callback;
-    return Subscription{};
 }
 
 std::vector<TopicInfo> Middleware::get_topic_names_and_types() const {
@@ -191,7 +182,7 @@ std::shared_ptr<Middleware> Middleware::create() {
 
 Subscription Middleware::make_subscription(
     std::uint64_t id,
-    std::unique_ptr<detail::SubscriptionBase> impl
+    std::shared_ptr<detail::SubscriptionBase> impl
 ) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -204,7 +195,13 @@ Subscription Middleware::make_subscription(
 
 void Middleware::unregister_subscription(std::uint64_t id) {
     std::lock_guard<std::mutex> lock(mutex_);
-    subscriptions_.erase(id);
+    auto it = subscriptions_.find(id);
+    if (it != subscriptions_.end()) {
+        // Mark as cancelled before removing - stops callbacks even if
+        // dispatcher has a shared_ptr copy
+        it->second->cancel();
+        subscriptions_.erase(it);
+    }
 }
 
 bool Middleware::subscription_valid(std::uint64_t id) const {
@@ -217,15 +214,15 @@ bool Middleware::subscription_valid(std::uint64_t id) const {
 void Middleware::dispatcher_loop() {
     while (!shutdown_.load()) {
 #ifdef __linux__
-        // Collect file descriptors and subscription pointers for poll
-        std::vector<std::pair<int, detail::SubscriptionBase*>> ready_subs;
+        // Collect subscriptions with their shared_ptrs (keeps them alive during dispatch)
+        std::vector<std::pair<int, std::shared_ptr<detail::SubscriptionBase>>> ready_subs;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             for (const auto& [id, sub] : subscriptions_) {
                 if (sub) {
                     int fd = sub->get_fd();
                     if (fd >= 0) {
-                        ready_subs.emplace_back(fd, sub.get());
+                        ready_subs.emplace_back(fd, sub);  // shared_ptr copy
                     }
                 }
             }
@@ -236,7 +233,7 @@ void Middleware::dispatcher_loop() {
             continue;
         }
 
-        // Poll for events (outside lock)
+        // Poll for events (outside lock, but shared_ptrs keep objects alive)
         std::vector<struct pollfd> pfds(ready_subs.size());
         for (std::size_t i = 0; i < ready_subs.size(); ++i) {
             pfds[i].fd = ready_subs[i].first;
@@ -249,10 +246,10 @@ void Middleware::dispatcher_loop() {
             continue;
         }
 
-        // Process ready subscriptions - invoke callbacks OUTSIDE the lock
+        // Process ready subscriptions - shared_ptr keeps objects alive
         for (std::size_t i = 0; i < pfds.size(); ++i) {
             if (pfds[i].revents & POLLIN) {
-                auto* sub = ready_subs[i].second;
+                auto& sub = ready_subs[i].second;
                 // Drain all messages - callback invoked without lock held
                 while (sub->spin_once()) {
                     // Continue until no more messages
@@ -260,19 +257,19 @@ void Middleware::dispatcher_loop() {
             }
         }
 #else
-        // Non-Linux: simple polling
-        std::vector<detail::SubscriptionBase*> subs_to_process;
+        // Non-Linux: simple polling with 1ms minimum latency
+        std::vector<std::shared_ptr<detail::SubscriptionBase>> subs_to_process;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             for (auto& [id, sub] : subscriptions_) {
                 if (sub) {
-                    subs_to_process.push_back(sub.get());
+                    subs_to_process.push_back(sub);  // shared_ptr copy
                 }
             }
         }
         
-        // Process outside the lock
-        for (auto* sub : subs_to_process) {
+        // Process outside the lock - shared_ptrs keep objects alive
+        for (auto& sub : subs_to_process) {
             while (sub->spin_once()) {
                 // Drain messages
             }
@@ -357,21 +354,6 @@ void Node::spin_once() {
 
 const std::string& Node::name() const noexcept {
     return node_name_;
-}
-
-Subscription Node::create_dynamic_subscription(
-    const std::string& topic,
-    const std::string& type_full_name,
-    std::function<void(const google::protobuf::Message&)> callback
-) const {
-    return mw_->subscribe(topic, type_full_name, std::move(callback));
-}
-
-Subscription Node::create_subscription_any(
-    const std::string& topic,
-    std::function<void(const std::string&, const google::protobuf::Message&)> callback
-) const {
-    return mw_->subscribe_any(topic, std::move(callback));
 }
 
 bool Node::valid() const noexcept {

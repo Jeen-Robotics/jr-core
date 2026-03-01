@@ -19,6 +19,10 @@ namespace jr::mw {
 /// 
 /// Provides a convenient interface for creating publishers and subscribers
 /// within a named context.
+///
+/// @note Publishers use the global Rust middleware backend directly.
+///       The per-node middleware instance (mw_) is used for subscriptions
+///       and callback dispatch.
 class Node {
 public:
     virtual ~Node() = default;
@@ -37,17 +41,13 @@ public:
     const std::string& name() const noexcept;
 
     /// Create a typed publisher
-    /// @note Publishers use the global Rust middleware backend.
-    ///       The per-node middleware instance (mw_) is only used for subscriptions.
+    /// @note Publishers go through the global Rust backend, not the per-node mw_
     template <typename ProtoT>
     Publisher<ProtoT> create_publisher(
         const std::string& topic,
         Qos qos = Qos::KeepLast,
         std::size_t capacity = 16
     ) {
-        // Publishers go through the global Rust backend
-        // (Rust middleware is a singleton, so all publishers share the same backend)
-        (void)mw_;  // Note: mw_ not used for publishers currently
         return advertise<ProtoT>(topic, qos, capacity);
     }
 
@@ -59,19 +59,6 @@ public:
     ) {
         return mw_->subscribe<ProtoT>(topic, std::move(callback));
     }
-
-    /// Create a dynamic subscription by type name
-    Subscription create_dynamic_subscription(
-        const std::string& topic,
-        const std::string& type_full_name,
-        std::function<void(const google::protobuf::Message&)> callback
-    ) const;
-
-    /// Create a subscription for all message types on a topic
-    Subscription create_subscription_any(
-        const std::string& topic,
-        std::function<void(const std::string&, const google::protobuf::Message&)> callback
-    ) const;
 
     /// Check if node is valid
     virtual bool valid() const noexcept;
