@@ -36,6 +36,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          use_sticky_comment: true
           additional_permissions: |
             actions: read
           prompt: |
@@ -45,7 +46,7 @@ jobs:
             3. Performance considerations
             4. Documentation completeness
             
-            Provide constructive feedback as a PR review comment.
+            Post your review as a PR comment.
 
   # Manual @claude trigger job
   claude-mention:
