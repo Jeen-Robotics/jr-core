@@ -2,4 +2,7 @@
 .cache
 .DS_Store
 build*
-CMakeUserPresets.json
+CMakeUserPresets.json-e 
+# Rust build artifacts
+core/middleware_rs/target/
+target/
