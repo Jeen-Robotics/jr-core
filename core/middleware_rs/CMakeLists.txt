@@ -12,14 +12,15 @@
 corrosion_import_crate(MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml)
 
 # CXX bridge headers are generated during cargo build
-# When using Corrosion, headers are in: ${CMAKE_BINARY_DIR}/cargo/build/.../cxxbridge/
-# We need to use corrosion's exported include directories
-# For now, use the Corrosion target directory
+# When using Corrosion, headers are in different locations depending on target:
+# - Local builds: ${SOURCE}/target/cxxbridge/
+# - Corrosion builds: ${CMAKE_BINARY_DIR}/cargo/build/${RUST_TARGET}/cxxbridge/
+# We add multiple paths to cover both cases
 set(CORROSION_TARGET_DIR "${CMAKE_BINARY_DIR}/cargo/build")
 # CXX outputs headers to target/cxxbridge/<crate>/src/... during build
-# We also check the source target dir for local builds
-set(CXX_BRIDGE_DIR_BUILD "${CORROSION_TARGET_DIR}/cxxbridge")
 set(CXX_BRIDGE_DIR_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/target/cxxbridge")
+# For Corrosion builds, the structure is: cargo/build/<target>/cxxbridge/
+set(CXX_BRIDGE_DIR_CORROSION "${CORROSION_TARGET_DIR}/x86_64-unknown-linux-gnu/cxxbridge")
 
 # Find protobuf for the wrapper
 find_package(Protobuf REQUIRED)
@@ -34,9 +35,10 @@ target_include_directories(middleware_rs_cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     PRIVATE
         # CXX-generated headers (need to build Rust first)
-        # Both build dir (Corrosion) and source dir (local cargo build) for compatibility
-        ${CXX_BRIDGE_DIR_BUILD}
+        # Source dir for local cargo build
         ${CXX_BRIDGE_DIR_SOURCE}
+        # Corrosion build dir (x86_64-unknown-linux-gnu target)
+        ${CXX_BRIDGE_DIR_CORROSION}
 )
 
 # Link against Rust library and dependencies
