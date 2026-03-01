@@ -41,6 +41,7 @@ impl MiddlewareHandle {
 /// Get or initialize the global middleware
 fn get_middleware() -> &'static Arc<MiddlewareHandle> {
     MIDDLEWARE.get_or_init(|| {
+        // Multi-thread runtime is needed for subscriber eventfd forwarding tasks
         let runtime = Runtime::new().expect("Failed to create tokio runtime");
         Arc::new(MiddlewareHandle {
             middleware: Middleware::new(),
@@ -52,6 +53,8 @@ fn get_middleware() -> &'static Arc<MiddlewareHandle> {
 /// Publisher handle for C++
 ///
 /// Caches the broadcast sender for efficient high-frequency publishing.
+/// Note: FFI delivery involves a copy on publish (.to_vec()) and receive (.clone()).
+/// Zero-copy only applies to Rust-native typed subscriptions.
 pub struct RustPublisher {
     /// Cached sender for zero-lookup publishing
     sender: Option<broadcast::Sender<Arc<Vec<u8>>>>,
@@ -131,11 +134,13 @@ pub mod ffi {
         fn middleware_init() -> bool;
 
         // Publisher API
+        /// Create a publisher. For SensorData QoS, capacity is ignored (always 1).
         fn create_publisher(topic: &str, qos: QosKind, capacity: usize) -> Box<RustPublisher>;
         fn publisher_is_valid(publisher: &RustPublisher) -> bool;
         fn publish_bytes(publisher: &RustPublisher, data: &[u8]) -> PublishResult;
 
         // Subscriber API
+        /// Create a subscriber. For SensorData QoS, capacity is ignored (always 1).
         fn create_subscriber(topic: &str, qos: QosKind, capacity: usize) -> Box<RustSubscriber>;
         fn subscriber_is_valid(subscriber: &RustSubscriber) -> bool;
         
@@ -160,11 +165,12 @@ pub mod ffi {
 use ffi::{PublishResult, QosKind, RecvResult};
 
 /// Convert FFI QosKind to internal Qos
+/// Note: For SensorData, capacity is ignored (always uses 1)
 fn qos_from_ffi(kind: QosKind, capacity: usize) -> Qos {
     match kind {
         QosKind::KeepLast => Qos::KeepLast(capacity),
-        QosKind::SensorData => Qos::SensorData,
-        // CXX enums are repr(u8), fallback for invalid values
+        QosKind::SensorData => Qos::SensorData,  // capacity ignored, always 1
+        // Defense-in-depth fallback (CXX validates enums at bridge level)
         _ => Qos::KeepLast(capacity),
     }
 }
@@ -270,10 +276,12 @@ fn publish_bytes(publisher: &RustPublisher, data: &[u8]) -> PublishResult {
             receivers,
             error_msg: String::new(),
         },
+        // No receivers is normal in pub/sub (startup, no consumers yet)
+        // Return success:true with receivers:0 to match Middleware::publish semantics
         Err(_) => PublishResult {
-            success: false,
+            success: true,
             receivers: 0,
-            error_msg: "No active receivers on topic".to_string(),
+            error_msg: String::new(),
         },
     }
 }
