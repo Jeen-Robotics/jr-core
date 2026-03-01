@@ -37,13 +37,17 @@ public:
     const std::string& name() const noexcept;
 
     /// Create a typed publisher
+    /// @note Publishers use the global Rust middleware backend.
+    ///       The per-node middleware instance (mw_) is only used for subscriptions.
     template <typename ProtoT>
     Publisher<ProtoT> create_publisher(
         const std::string& topic,
         Qos qos = Qos::KeepLast,
         std::size_t capacity = 16
     ) {
-        // Use the global advertise function from middleware_rs
+        // Publishers go through the global Rust backend
+        // (Rust middleware is a singleton, so all publishers share the same backend)
+        (void)mw_;  // Note: mw_ not used for publishers currently
         return advertise<ProtoT>(topic, qos, capacity);
     }
 

@@ -6,7 +6,8 @@ add_library(jr_middleware
 
 target_include_directories(jr_middleware 
     PUBLIC 
-        include/
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
 )
 
 # Link against Rust middleware backend
@@ -16,8 +17,18 @@ target_link_libraries(jr_middleware
         middleware_rs_cpp
 )
 
-install(TARGETS jr_middleware DESTINATION lib)
-install(FILES ${INTERFACE_INCLUDE_DIRECTORIES})
+# Install library
+install(TARGETS jr_middleware 
+    EXPORT jr_middlewareTargets
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+)
+
+# Install headers
+install(DIRECTORY include/middleware
+    DESTINATION include
+    FILES_MATCHING PATTERN "*.hpp"
+)
 
 if(BUILD_TESTS)
     add_subdirectory(test)

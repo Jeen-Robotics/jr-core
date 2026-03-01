@@ -134,6 +134,7 @@ private:
     mutable std::mutex mutex_;
     std::unordered_map<std::uint64_t, std::unique_ptr<detail::SubscriptionBase>> subscriptions_;
     std::unordered_map<std::string, std::string> topic_types_;  // topic -> type_full_name
+    std::unordered_map<std::string, PublisherPtr> publishers_;  // topic -> cached publisher
     std::uint64_t next_id_{1};
     
     std::thread dispatcher_;

@@ -1,21 +1,20 @@
 add_subdirectory(math)
 add_subdirectory(imgproc)
 
-# Rust middleware backend (required for middleware)
+# Rust middleware backend (not available on Android)
 if(NOT ANDROID)
     add_subdirectory(middleware_rs)
+    add_subdirectory(middleware)
 endif()
-
-add_subdirectory(middleware)
 
 # Optional modules that require additional dependencies
 find_package(OpenCV QUIET COMPONENTS core)
 
 if(OpenCV_FOUND)
     find_package(mcap CONFIG QUIET)
-    if(mcap_FOUND)
+    if(mcap_FOUND AND NOT ANDROID)
         add_subdirectory(bag)
-    else()
+    elseif(NOT mcap_FOUND)
         message(STATUS "Skipping bag module (mcap not found)")
     endif()
     

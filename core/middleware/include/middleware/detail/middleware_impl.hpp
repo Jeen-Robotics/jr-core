@@ -27,13 +27,9 @@ Subscription Middleware::do_subscribe_typed(
         topic_types_[topic] = type_full_name;
     }
 
-    // Convert QoS to Rust enum (same namespace but potentially different enum)
-    auto rust_qos = (qos == Qos::SensorData) 
-        ? jr::mw::Qos::SensorData 
-        : jr::mw::Qos::KeepLast;
-
     // Create Rust-backed subscriber (no callback - we poll manually)
-    auto sub = jr::mw::subscribe<ProtoT>(topic, rust_qos, capacity);
+    // Note: Qos enum is shared between middleware and middleware_rs
+    auto sub = jr::mw::subscribe<ProtoT>(topic, qos, capacity);
     if (!sub.valid()) {
         return Subscription{};
     }

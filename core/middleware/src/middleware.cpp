@@ -13,7 +13,7 @@
 #endif
 
 #include <chrono>
-#include <condition_variable>
+#include <iostream>
 
 namespace jr::mw {
 
@@ -23,7 +23,6 @@ namespace {
 std::shared_ptr<Middleware> g_middleware;
 std::mutex g_mutex;
 std::atomic<bool> g_shutdown_requested{false};
-std::condition_variable g_shutdown_cv;
 
 } // namespace
 
@@ -91,6 +90,7 @@ void Middleware::shutdown() {
     
     std::lock_guard<std::mutex> lock(mutex_);
     subscriptions_.clear();
+    publishers_.clear();
 }
 
 void Middleware::publish(const std::string& topic, const google::protobuf::Message& message) {
@@ -116,22 +116,37 @@ void Middleware::publish_serialized(
     const std::string& type_full_name,
     const std::string& payload
 ) {
-    // Check/register type
+    // Check/register type and get/create cached publisher
+    detail::PublisherImpl* pub_ptr = nullptr;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        auto it = topic_types_.find(topic);
-        if (it == topic_types_.end()) {
+        
+        // Type check
+        auto type_it = topic_types_.find(topic);
+        if (type_it == topic_types_.end()) {
             topic_types_[topic] = type_full_name;
-        } else if (it->second != type_full_name) {
+        } else if (type_it->second != type_full_name) {
             // Type mismatch - silently ignore
             return;
         }
+        
+        // Get or create cached publisher
+        auto pub_it = publishers_.find(topic);
+        if (pub_it == publishers_.end()) {
+            auto new_pub = detail::create_publisher_impl(topic, Qos::KeepLast, 16);
+            if (!new_pub) {
+                return;
+            }
+            pub_ptr = new_pub.get();
+            publishers_[topic] = std::move(new_pub);
+        } else {
+            pub_ptr = pub_it->second.get();
+        }
     }
 
-    // Publish via Rust backend
-    auto pub_impl = detail::create_publisher_impl(topic, Qos::KeepLast, 16);
-    if (pub_impl) {
-        detail::publish_impl(pub_impl.get(), payload.data(), payload.size());
+    // Publish outside the lock
+    if (pub_ptr) {
+        detail::publish_impl(pub_ptr, payload.data(), payload.size());
     }
 }
 
@@ -140,10 +155,10 @@ Subscription Middleware::subscribe(
     const std::string& type_full_name,
     std::function<void(const google::protobuf::Message&)> callback
 ) {
-    // Dynamic subscription requires message factory
-    // Not implemented yet - requires protobuf reflection
-    (void)topic;
-    (void)type_full_name;
+    // Dynamic subscription requires protobuf reflection/message factory
+    // Not implemented - log warning and return invalid subscription
+    std::cerr << "[jr::mw] WARNING: subscribe(topic, type_name, callback) not implemented. "
+              << "Topic: " << topic << ", Type: " << type_full_name << std::endl;
     (void)callback;
     return Subscription{};
 }
@@ -152,9 +167,10 @@ Subscription Middleware::subscribe_any(
     const std::string& topic,
     std::function<void(const std::string&, const google::protobuf::Message&)> callback
 ) {
-    // Any subscription requires message factory
-    // Not implemented yet - requires protobuf reflection
-    (void)topic;
+    // Any subscription requires protobuf reflection/message factory
+    // Not implemented - log warning and return invalid subscription
+    std::cerr << "[jr::mw] WARNING: subscribe_any() not implemented. "
+              << "Topic: " << topic << std::endl;
     (void)callback;
     return Subscription{};
 }
@@ -201,29 +217,29 @@ bool Middleware::subscription_valid(std::uint64_t id) const {
 void Middleware::dispatcher_loop() {
     while (!shutdown_.load()) {
 #ifdef __linux__
-        // Collect file descriptors for poll
-        std::vector<std::pair<int, std::uint64_t>> fds;
+        // Collect file descriptors and subscription pointers for poll
+        std::vector<std::pair<int, detail::SubscriptionBase*>> ready_subs;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             for (const auto& [id, sub] : subscriptions_) {
                 if (sub) {
                     int fd = sub->get_fd();
                     if (fd >= 0) {
-                        fds.emplace_back(fd, id);
+                        ready_subs.emplace_back(fd, sub.get());
                     }
                 }
             }
         }
 
-        if (fds.empty()) {
+        if (ready_subs.empty()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
         }
 
-        // Poll for events
-        std::vector<struct pollfd> pfds(fds.size());
-        for (std::size_t i = 0; i < fds.size(); ++i) {
-            pfds[i].fd = fds[i].first;
+        // Poll for events (outside lock)
+        std::vector<struct pollfd> pfds(ready_subs.size());
+        for (std::size_t i = 0; i < ready_subs.size(); ++i) {
+            pfds[i].fd = ready_subs[i].first;
             pfds[i].events = POLLIN;
             pfds[i].revents = 0;
         }
@@ -233,39 +249,43 @@ void Middleware::dispatcher_loop() {
             continue;
         }
 
-        // Process ready subscriptions
+        // Process ready subscriptions - invoke callbacks OUTSIDE the lock
         for (std::size_t i = 0; i < pfds.size(); ++i) {
             if (pfds[i].revents & POLLIN) {
-                std::uint64_t id = fds[i].second;
-                std::lock_guard<std::mutex> lock(mutex_);
-                auto it = subscriptions_.find(id);
-                if (it != subscriptions_.end() && it->second) {
-                    // Drain all messages
-                    while (it->second->spin_once()) {
-                        // Continue until no more messages
-                    }
+                auto* sub = ready_subs[i].second;
+                // Drain all messages - callback invoked without lock held
+                while (sub->spin_once()) {
+                    // Continue until no more messages
                 }
             }
         }
 #else
         // Non-Linux: simple polling
+        std::vector<detail::SubscriptionBase*> subs_to_process;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             for (auto& [id, sub] : subscriptions_) {
                 if (sub) {
-                    while (sub->spin_once()) {
-                        // Drain messages
-                    }
+                    subs_to_process.push_back(sub.get());
                 }
             }
         }
+        
+        // Process outside the lock
+        for (auto* sub : subs_to_process) {
+            while (sub->spin_once()) {
+                // Drain messages
+            }
+        }
+        
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
 #endif
     }
 }
 
 void Middleware::ensure_dispatcher() {
-    if (dispatcher_running_.load()) {
+    // Don't start dispatcher if already shutdown
+    if (shutdown_.load() || dispatcher_running_.load()) {
         return;
     }
     
@@ -290,7 +310,6 @@ std::shared_ptr<Middleware> get() {
 
 void shutdown() {
     g_shutdown_requested.store(true);
-    g_shutdown_cv.notify_all();
     
     std::shared_ptr<Middleware> mw;
     {
