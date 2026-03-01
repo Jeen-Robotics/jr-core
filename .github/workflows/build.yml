@@ -59,7 +59,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          conan install conanfile_minimal.txt \
+          conan install conanfile.txt \
             --output-folder=build \
             --build=missing
 
@@ -70,10 +70,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_RUST_MIDDLEWARE=ON \
             -DBUILD_SANDBOX=OFF \
-            -DBUILD_TESTS=ON \
-            -DSKIP_BAG_MODULE=ON \
-            -DSKIP_VIO_MODULE=ON \
-            -DSKIP_API_MODULE=ON
+            -DBUILD_TESTS=ON
 
       - name: Build
         run: cmake --build build --parallel
