@@ -5,6 +5,6 @@ add_subdirectory(bag)
 add_subdirectory(nodes)
 add_subdirectory(vio)
 
-if(BUILD_RUST_MIDDLEWARE)
+if(BUILD_RUST_MIDDLEWARE AND NOT ANDROID)
     add_subdirectory(middleware_rs)
 endif()

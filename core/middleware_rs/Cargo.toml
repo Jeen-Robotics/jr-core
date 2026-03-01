@@ -2,6 +2,7 @@
 name = "middleware_rs"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.75"
 description = "Rust pub/sub middleware with zero-copy inter-thread communication"
 
 [lib]
@@ -22,8 +23,8 @@ bytes = "1"
 # FFI (will be used in Phase 2)
 # cxx = "1.0"
 
-# Logging
-tracing = "0.1"
+# Logging (will be used in Phase 2)
+# tracing = "0.1"
 
 [build-dependencies]
 # cxx-build = "1.0"  # Will be enabled in Phase 2

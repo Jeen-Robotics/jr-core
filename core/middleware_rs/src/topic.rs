@@ -48,13 +48,7 @@ impl TopicRegistry {
         if let Some(entry) = self.topics.get(topic) {
             // Verify type matches
             if entry.type_id != type_id {
-                tracing::error!(
-                    "Topic '{}' type mismatch: expected {:?}, got {:?}",
-                    topic,
-                    entry.type_id,
-                    type_id
-                );
-                return None;
+                return None; // Type mismatch
             }
             // Downcast and clone the sender
             let sender = entry

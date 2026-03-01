@@ -3,7 +3,6 @@
 use std::sync::Arc;
 
 use tokio::sync::broadcast;
-use tracing;
 
 use crate::topic::TopicRegistry;
 
@@ -50,7 +49,7 @@ impl<T: Send + Sync + 'static> Subscription<T> {
         match self.receiver.recv().await {
             Ok(msg) => Ok(msg),
             Err(broadcast::error::RecvError::Lagged(n)) => {
-                tracing::warn!("Subscription to '{}' lagged by {} messages", self.topic, n);
+                eprintln!("[middleware_rs] WARN: Subscription to '{}' lagged by {} messages", self.topic, n);
                 Err(MiddlewareError::Lagged {
                     topic: self.topic.clone(),
                     count: n,
@@ -71,7 +70,7 @@ impl<T: Send + Sync + 'static> Subscription<T> {
         match self.receiver.try_recv() {
             Ok(msg) => Some(Ok(msg)),
             Err(broadcast::error::TryRecvError::Lagged(n)) => {
-                tracing::warn!("Subscription to '{}' lagged by {} messages", self.topic, n);
+                eprintln!("[middleware_rs] WARN: Subscription to '{}' lagged by {} messages", self.topic, n);
                 Some(Err(MiddlewareError::Lagged {
                     topic: self.topic.clone(),
                     count: n,
@@ -91,9 +90,10 @@ impl<T: Send + Sync + 'static> Subscription<T> {
         &self.topic
     }
 
-    /// Resubscribe to the topic from the current position
+    /// Creates a new receiver that sees only messages published *after* this call.
     ///
-    /// This creates a new receiver that will only see new messages.
+    /// Buffered messages in the current receiver are not replicated to the new one.
+    /// This is useful when you want to "catch up" by skipping old messages.
     pub fn resubscribe(&self) -> Self {
         Self {
             receiver: self.receiver.resubscribe(),
@@ -165,19 +165,13 @@ impl Middleware {
         topic: &str,
     ) -> Result<Subscription<T>, MiddlewareError> {
         match self.topics.subscribe::<T>(topic) {
-            Some(receiver) => {
-                tracing::debug!("Subscribed to topic '{}'", topic);
-                Ok(Subscription {
-                    receiver,
-                    topic: topic.to_string(),
-                })
-            }
-            None => {
-                tracing::error!("Failed to subscribe to '{}': type mismatch", topic);
-                Err(MiddlewareError::TypeMismatch {
-                    topic: topic.to_string(),
-                })
-            }
+            Some(receiver) => Ok(Subscription {
+                receiver,
+                topic: topic.to_string(),
+            }),
+            None => Err(MiddlewareError::TypeMismatch {
+                topic: topic.to_string(),
+            }),
         }
     }
 
@@ -195,16 +189,10 @@ impl Middleware {
         msg: Arc<T>,
     ) -> Result<usize, MiddlewareError> {
         match self.topics.publish(topic, msg) {
-            Some(count) => {
-                tracing::trace!("Published to '{}', {} receivers", topic, count);
-                Ok(count)
-            }
-            None => {
-                tracing::error!("Failed to publish to '{}': type mismatch", topic);
-                Err(MiddlewareError::TypeMismatch {
-                    topic: topic.to_string(),
-                })
-            }
+            Some(count) => Ok(count),
+            None => Err(MiddlewareError::TypeMismatch {
+                topic: topic.to_string(),
+            }),
         }
     }
 
@@ -231,11 +219,7 @@ impl Middleware {
 
     /// Remove a topic and close all its subscribers
     pub fn remove_topic(&self, topic: &str) -> bool {
-        let removed = self.topics.remove_topic(topic);
-        if removed {
-            tracing::info!("Removed topic '{}'", topic);
-        }
-        removed
+        self.topics.remove_topic(topic)
     }
 
     /// Get all topic names
