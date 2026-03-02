@@ -125,13 +125,19 @@ public:
     }
 
     /// Subscribe to all messages on a topic regardless of type
+    /// Subscribe to all messages on a topic regardless of type.
     /// 
     /// Uses protobuf reflection to deserialize any message type. The type must
-    /// be registered in the C++ topic_types_ registry (happens on first publish
-    /// via Middleware::publish() or Middleware::publish_serialized()).
+    /// be registered in the C++ topic_types_ registry before messages can be
+    /// deserialized. Type registration happens when:
+    /// - A typed publish() or publish_serialized() is called on the topic
+    /// - A typed subscribe<T>() is called on the topic
+    /// - Node::create_publisher<T>() is called for the topic
     /// 
-    /// @note Messages published via Publisher<T> (from Node::create_publisher)
-    ///       also register their type, enabling subscribe_any() to work.
+    /// @warning Messages received before type registration are silently dropped.
+    ///          For reliable recording, ensure at least one typed publisher or
+    ///          subscriber exists on the topic before calling subscribe_any().
+    /// 
     /// @param topic Topic name
     /// @param callback Callback receiving type name and deserialized message
     /// @param qos Quality of service
@@ -175,6 +181,7 @@ private:
     void dispatcher_loop();
     void ensure_dispatcher();
 
+    // mutable to allow locking in const methods (subscription_valid, get_topic_names_and_types)
     mutable std::mutex mutex_;
     // Use shared_ptr to allow safe concurrent access during dispatch
     std::unordered_map<std::uint64_t, std::shared_ptr<detail::SubscriptionBase>> subscriptions_;
@@ -185,6 +192,7 @@ private:
     std::thread dispatcher_;
     std::atomic<bool> shutdown_{false};
     std::atomic<bool> dispatcher_running_{false};
+    bool init_failed_{false};  // Set if Rust backend initialization fails
     
     // Condition variable for non-Linux platforms to avoid busy-waiting
     std::condition_variable dispatch_cv_;
@@ -198,9 +206,15 @@ std::shared_ptr<Middleware> get();
 void shutdown();
 
 /// Spin processing messages for a single node
+/// @note spin() only exits when the global shutdown() is called.
+///       Calling mw->shutdown() on a specific Middleware instance does NOT
+///       cause spin() to exit. Use the global shutdown() for spin() loops.
 void spin(const std::shared_ptr<Node>& node);
 
 /// Spin processing messages for multiple nodes
+/// @note spin() only exits when the global shutdown() is called.
+///       Calling mw->shutdown() on a specific Middleware instance does NOT
+///       cause spin() to exit. Use the global shutdown() for spin() loops.
 void spin(const std::vector<std::shared_ptr<Node>>& nodes);
 
 } // namespace jr::mw

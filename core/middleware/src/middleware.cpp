@@ -73,11 +73,13 @@ bool Subscription::valid() const noexcept {
 
 // --- Middleware ---
 
-Middleware::Middleware() {
+Middleware::Middleware()
+    : init_failed_(false)
+{
     // Initialize Rust backend (idempotent - Rust uses OnceCell singleton)
     if (!jr::mw::init()) {
-        std::cerr << "[jr::mw] FATAL: Failed to initialize Rust middleware backend" << std::endl;
-        std::abort();
+        std::cerr << "[jr::mw] ERROR: Failed to initialize Rust middleware backend" << std::endl;
+        init_failed_ = true;
     }
 }
 
@@ -153,6 +155,11 @@ void Middleware::publish_serialized(
     std::shared_ptr<detail::PublisherImpl> pub_shared;
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        
+        // Re-check shutdown under lock to close race window
+        if (shutdown_.load()) {
+            return;
+        }
         
         // Type check
         auto type_it = topic_types_.find(topic);
@@ -249,7 +256,11 @@ void Middleware::register_topic_type(const std::string& topic, const std::string
 }
 
 std::shared_ptr<Middleware> Middleware::create() {
-    return std::shared_ptr<Middleware>(new Middleware());
+    auto mw = std::shared_ptr<Middleware>(new Middleware());
+    if (mw->init_failed_) {
+        return nullptr;
+    }
+    return mw;
 }
 
 Subscription Middleware::make_subscription(
@@ -366,6 +377,9 @@ void Middleware::dispatcher_loop() {
         }
 #endif
     }
+    
+    // Reset flag so dispatcher can be restarted if needed
+    dispatcher_running_.store(false);
 }
 
 void Middleware::ensure_dispatcher() {
