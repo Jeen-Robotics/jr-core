@@ -2,6 +2,7 @@
 #include <middleware/node.hpp>
 #include <middleware/detail/subscription_base.hpp>
 #include <middleware/detail/subscription_impl.hpp>
+#include <middleware/detail/subscription_any_impl.hpp>
 
 #include <middleware_rs/middleware.hpp>
 
@@ -168,6 +169,11 @@ void Middleware::publish_serialized(
     // Publish outside the lock - pub_shared keeps publisher alive
     if (pub_shared) {
         detail::publish_impl(pub_shared.get(), payload.data(), payload.size());
+        
+        // Notify dispatcher on non-Linux platforms
+#ifndef __linux__
+        dispatch_cv_.notify_one();
+#endif
     }
 }
 
@@ -175,13 +181,31 @@ Subscription Middleware::subscribe_any(
     const std::string& topic,
     std::function<void(const std::string&, const google::protobuf::Message&)> callback
 ) {
-    // Not implemented - requires protobuf reflection/dynamic message factory
-    // Log warning once per topic
-    std::cerr << "[jr::mw] WARNING: subscribe_any() not implemented for Rust backend. "
-              << "Topic '" << topic << "' will not receive messages. "
-              << "BagWriter recording will not work." << std::endl;
-    (void)callback;
-    return Subscription{};
+    // Create raw bytes subscriber from Rust backend
+    auto sub_impl = detail::create_subscriber_impl(topic, Qos::KeepLast, 16);
+    if (!sub_impl || !detail::subscriber_valid_impl(sub_impl.get())) {
+        std::cerr << "[jr::mw] WARNING: Failed to create subscriber for topic: " << topic << std::endl;
+        return Subscription{};
+    }
+
+    // Allocate ID
+    std::uint64_t id;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        id = next_id_++;
+    }
+
+    // Create type-erased subscription that uses protobuf reflection
+    // Pass references to mutex_ and topic_types_ for dynamic type lookup
+    auto impl = std::make_shared<detail::SubscriptionAnyImpl>(
+        std::move(sub_impl),
+        topic,
+        std::move(callback),
+        mutex_,
+        topic_types_
+    );
+
+    return make_subscription(id, std::move(impl));
 }
 
 std::vector<TopicInfo> Middleware::get_topic_names_and_types() const {
@@ -281,10 +305,20 @@ void Middleware::dispatcher_loop() {
             }
         }
 #else
-        // Non-Linux: simple polling with 1ms minimum latency
+        // Non-Linux: use condition variable to avoid busy-waiting
         std::vector<std::shared_ptr<detail::SubscriptionBase>> subs_to_process;
         {
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::unique_lock<std::mutex> lock(mutex_);
+            
+            // Wait for notification or timeout (10ms max for responsiveness)
+            dispatch_cv_.wait_for(lock, std::chrono::milliseconds(10), [this]() {
+                return shutdown_.load() || !subscriptions_.empty();
+            });
+            
+            if (shutdown_.load()) {
+                break;
+            }
+            
             for (auto& [id, sub] : subscriptions_) {
                 if (sub) {
                     subs_to_process.push_back(sub);  // shared_ptr copy
@@ -298,8 +332,6 @@ void Middleware::dispatcher_loop() {
                 // Drain messages
             }
         }
-        
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
 #endif
     }
 }

@@ -16,6 +16,7 @@
 #include <google/protobuf/message.h>
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -50,8 +51,8 @@ struct TopicInfo {
 ///          all instances. If you need topic isolation, use topic namespacing
 ///          (e.g., "/node1/topic" vs "/node2/topic").
 ///
-/// @note Non-Linux platforms use a 1ms polling loop for message dispatch,
-///       which adds up to 1ms latency. Linux uses eventfd/poll for lower latency.
+/// @note Linux uses eventfd/poll for efficient message dispatch.
+///       Non-Linux platforms use condition_variable with 10ms timeout.
 class Middleware : public std::enable_shared_from_this<Middleware> {
 public:
     ~Middleware();
@@ -148,6 +149,9 @@ private:
     std::thread dispatcher_;
     std::atomic<bool> shutdown_{false};
     std::atomic<bool> dispatcher_running_{false};
+    
+    // Condition variable for non-Linux platforms to avoid busy-waiting
+    std::condition_variable dispatch_cv_;
 };
 
 /// Get or create the global middleware instance

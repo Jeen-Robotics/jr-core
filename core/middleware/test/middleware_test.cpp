@@ -493,4 +493,89 @@ TEST(Node, CreatePublisherWithQos) {
   shutdown();
 }
 
+TEST(Middleware, SubscribeAny_ReceivesMessages) {
+  auto mw = Middleware::create();
+  
+  std::atomic<int> received_count{0};
+  std::string received_type;
+  int received_value = -1;
+  
+  // First publish to register the type
+  google::protobuf::Int32Value v;
+  v.set_value(42);
+  mw->publish("/any_test", v);
+  
+  // Now subscribe_any
+  auto sub = mw->subscribe_any(
+    "/any_test",
+    [&](const std::string& type_name, const google::protobuf::Message& msg) {
+      received_type = type_name;
+      if (auto* int_msg = dynamic_cast<const google::protobuf::Int32Value*>(&msg)) {
+        received_value = int_msg->value();
+      }
+      ++received_count;
+    }
+  );
+  
+  ASSERT_TRUE(sub.valid());
+  
+  // Publish more messages
+  v.set_value(100);
+  mw->publish("/any_test", v);
+  v.set_value(200);
+  mw->publish("/any_test", v);
+  
+  // Wait for messages
+  for (int i = 0; i < 100 && received_count.load() < 2; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  
+  EXPECT_GE(received_count.load(), 1);
+  EXPECT_EQ(received_type, "google.protobuf.Int32Value");
+  EXPECT_GE(received_value, 100);  // Should have received 100 or 200
+}
+
+TEST(Middleware, SubscribeAny_MultipleTypes) {
+  auto mw = Middleware::create();
+  
+  std::atomic<int> int_count{0};
+  std::atomic<int> str_count{0};
+  
+  // Register types by publishing
+  google::protobuf::Int32Value iv;
+  iv.set_value(1);
+  mw->publish("/any_int", iv);
+  
+  google::protobuf::StringValue sv;
+  sv.set_value("hello");
+  mw->publish("/any_str", sv);
+  
+  // Subscribe to both
+  auto sub_int = mw->subscribe_any(
+    "/any_int",
+    [&](const std::string&, const google::protobuf::Message&) { ++int_count; }
+  );
+  auto sub_str = mw->subscribe_any(
+    "/any_str",
+    [&](const std::string&, const google::protobuf::Message&) { ++str_count; }
+  );
+  
+  ASSERT_TRUE(sub_int.valid());
+  ASSERT_TRUE(sub_str.valid());
+  
+  // Publish more
+  iv.set_value(2);
+  mw->publish("/any_int", iv);
+  sv.set_value("world");
+  mw->publish("/any_str", sv);
+  
+  // Wait
+  for (int i = 0; i < 100 && (int_count.load() == 0 || str_count.load() == 0); ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  
+  EXPECT_GE(int_count.load(), 1);
+  EXPECT_GE(str_count.load(), 1);
+}
+
 } // namespace jr::mw
