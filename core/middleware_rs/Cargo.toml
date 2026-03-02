@@ -15,11 +15,6 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time"
 # Concurrent collections
 dashmap = "6"
 
-# Protobuf (compatible with C++ protobuf wire format)
-# prost compiles `bytes` fields to Vec<u8> by default
-# prost-types only needed for google.protobuf.* well-known types (not used)
-prost = "0.13"
-
 # FFI for C++ interop
 cxx = "1.0"
 
@@ -35,7 +30,6 @@ libc = "0.2"
 
 [build-dependencies]
 cxx-build = "1.0"
-prost-build = "0.13"
 
 [dev-dependencies]
 tokio-test = "0.4"

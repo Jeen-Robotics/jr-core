@@ -13,14 +13,11 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
-#include <atomic>
 
 int main() {
     // Initialize the middleware (idempotent, safe to call multiple times)
     jr::mw::init();
-    
-    std::atomic<bool> running{true};
-    
+
     // =========================================================================
     // Example 1: Basic Publish/Subscribe with Callback
     // =========================================================================
@@ -47,7 +44,9 @@ int main() {
     for (int i = 0; i < 5; ++i) {
         std_msgs::Int32 msg;
         msg.set_data(i);
-        pub.publish(msg);
+        if (!pub.publish(msg)) {
+          std::cerr << "Couldn't publish\n";
+        }
         
         // Process callbacks
         sub.spin_once();
@@ -70,7 +69,10 @@ int main() {
     // Publish a message
     std_msgs::Int32 poll_msg;
     poll_msg.set_data(42);
-    poll_pub.publish(poll_msg);
+    if (!poll_pub.publish(poll_msg)) {
+      std::cerr << "Couldn't publish for poll\n";
+      return 1;
+    }
     
     // Wait for message to be available
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -100,7 +102,9 @@ int main() {
     for (int i = 0; i < 100; ++i) {
         std_msgs::Int32 msg;
         msg.set_data(i);
-        sensor_pub.publish(msg);
+        if (!sensor_pub.publish(msg)) {
+          std::cerr << "Couldn't publish sensor data\n";
+        }
     }
     
     std::this_thread::sleep_for(std::chrono::milliseconds(100));

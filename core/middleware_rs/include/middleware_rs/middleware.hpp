@@ -16,7 +16,7 @@
 ///
 ///     // Create typed publisher
 ///     auto pub = jr::mw::advertise<my_msgs::SensorData>("sensor/data");
-///     
+///
 ///     // Create typed subscriber with callback
 ///     auto sub = jr::mw::subscribe<my_msgs::SensorData>(
 ///         "sensor/data",
@@ -24,12 +24,12 @@
 ///             std::cout << "Received: " << msg.value() << std::endl;
 ///         }
 ///     );
-///     
+///
 ///     // Publish
 ///     my_msgs::SensorData msg;
 ///     msg.set_value(42);
 ///     pub.publish(msg);
-///     
+///
 ///     // Poll for messages (drives callbacks)
 ///     while (running) {
 ///         sub.spin_once();
@@ -55,12 +55,12 @@ bool init();
 /// @return Publisher instance
 template <typename ProtoT>
 Publisher<ProtoT> advertise(
-    const std::string& topic,
-    Qos qos = Qos::KeepLast,
-    std::size_t capacity = 16
+  const std::string& topic,
+  const Qos qos = Qos::KeepLast,
+  const std::size_t capacity = 16
 ) {
-    auto impl = detail::create_publisher_impl(topic, qos, capacity);
-    return Publisher<ProtoT>(topic, std::move(impl));
+  auto impl = detail::create_publisher_impl(topic, qos, capacity);
+  return Publisher<ProtoT>(topic, std::move(impl));
 }
 
 /// Create a typed subscriber with callback
@@ -72,13 +72,13 @@ Publisher<ProtoT> advertise(
 /// @return Subscriber instance
 template <typename ProtoT>
 Subscriber<ProtoT> subscribe(
-    const std::string& topic,
-    std::function<void(const ProtoT&)> callback,
-    Qos qos = Qos::KeepLast,
-    std::size_t capacity = 16
+  const std::string& topic,
+  std::function<void(const ProtoT&)> callback,
+  const Qos qos = Qos::KeepLast,
+  const std::size_t capacity = 16
 ) {
-    auto impl = detail::create_subscriber_impl(topic, qos, capacity);
-    return Subscriber<ProtoT>(topic, std::move(impl), std::move(callback));
+  auto impl = detail::create_subscriber_impl(topic, qos, capacity);
+  return Subscriber<ProtoT>(topic, std::move(impl), std::move(callback));
 }
 
 /// Create a typed subscriber for polling (no callback)
@@ -89,12 +89,12 @@ Subscriber<ProtoT> subscribe(
 /// @return Subscriber instance
 template <typename ProtoT>
 Subscriber<ProtoT> subscribe(
-    const std::string& topic,
-    Qos qos = Qos::KeepLast,
-    std::size_t capacity = 16
+  const std::string& topic,
+  const Qos qos = Qos::KeepLast,
+  const std::size_t capacity = 16
 ) {
-    auto impl = detail::create_subscriber_impl(topic, qos, capacity);
-    return Subscriber<ProtoT>(topic, std::move(impl));
+  auto impl = detail::create_subscriber_impl(topic, qos, capacity);
+  return Subscriber<ProtoT>(topic, std::move(impl));
 }
 
 /// Check if a topic exists
