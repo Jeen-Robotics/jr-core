@@ -42,12 +42,18 @@ public:
 
     /// Create a typed publisher
     /// @note Publishers go through the global Rust backend, not the per-node mw_
+    ///       The type is registered in mw_ for subscribe_any()/BagWriter support.
     template <typename ProtoT>
     Publisher<ProtoT> create_publisher(
         const std::string& topic,
         Qos qos = Qos::KeepLast,
         std::size_t capacity = 16
     ) {
+        // Register type in C++ middleware for subscribe_any() / BagWriter support
+        const auto* desc = ProtoT::descriptor();
+        if (desc) {
+            mw_->register_topic_type(topic, std::string(desc->full_name()));
+        }
         return advertise<ProtoT>(topic, qos, capacity);
     }
 

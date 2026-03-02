@@ -104,8 +104,13 @@ public:
     }
 
     /// Subscribe to all messages on a topic regardless of type
-    /// @warning Not implemented in Rust backend - always returns invalid subscription.
-    ///          BagWriter recording will not work. Use typed subscribe<ProtoT>() instead.
+    /// 
+    /// Uses protobuf reflection to deserialize any message type. The type must
+    /// be registered in the C++ topic_types_ registry (happens on first publish
+    /// via Middleware::publish() or Middleware::publish_serialized()).
+    /// 
+    /// @note Messages published via Publisher<T> (from Node::create_publisher)
+    ///       also register their type, enabling subscribe_any() to work.
     Subscription subscribe_any(
         const std::string& topic,
         std::function<void(const std::string&, const google::protobuf::Message&)> callback
@@ -113,6 +118,10 @@ public:
 
     /// Get topic names and types (C++ registry only, not Rust backend)
     std::vector<TopicInfo> get_topic_names_and_types() const;
+
+    /// Register a topic type for subscribe_any() support
+    /// Called by Node::create_publisher() to ensure type is available for BagWriter
+    void register_topic_type(const std::string& topic, const std::string& type_full_name);
 
     /// Factory method
     static std::shared_ptr<Middleware> create();

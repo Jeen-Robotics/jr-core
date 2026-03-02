@@ -218,6 +218,18 @@ std::vector<TopicInfo> Middleware::get_topic_names_and_types() const {
     return result;
 }
 
+void Middleware::register_topic_type(const std::string& topic, const std::string& type_full_name) {
+    if (type_full_name.empty()) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = topic_types_.find(topic);
+    if (it == topic_types_.end()) {
+        topic_types_[topic] = type_full_name;
+    }
+    // If type already registered, ignore (first publisher wins)
+}
+
 std::shared_ptr<Middleware> Middleware::create() {
     return std::shared_ptr<Middleware>(new Middleware());
 }
@@ -305,14 +317,16 @@ void Middleware::dispatcher_loop() {
             }
         }
 #else
-        // Non-Linux: use condition variable to avoid busy-waiting
+        // Non-Linux: use condition variable with timeout
+        // Note: We poll every 10ms because the predicate only checks shutdown.
+        // The notify_one() from publish() reduces latency when messages arrive.
         std::vector<std::shared_ptr<detail::SubscriptionBase>> subs_to_process;
         {
             std::unique_lock<std::mutex> lock(mutex_);
             
-            // Wait for notification or timeout (10ms max for responsiveness)
+            // Wait for shutdown signal or timeout (10ms max for message polling)
             dispatch_cv_.wait_for(lock, std::chrono::milliseconds(10), [this]() {
-                return shutdown_.load() || !subscriptions_.empty();
+                return shutdown_.load();
             });
             
             if (shutdown_.load()) {

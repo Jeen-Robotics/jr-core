@@ -497,6 +497,7 @@ TEST(Middleware, SubscribeAny_ReceivesMessages) {
   auto mw = Middleware::create();
   
   std::atomic<int> received_count{0};
+  std::mutex mtx;
   std::string received_type;
   int received_value = -1;
   
@@ -509,6 +510,7 @@ TEST(Middleware, SubscribeAny_ReceivesMessages) {
   auto sub = mw->subscribe_any(
     "/any_test",
     [&](const std::string& type_name, const google::protobuf::Message& msg) {
+      std::lock_guard<std::mutex> lock(mtx);
       received_type = type_name;
       if (auto* int_msg = dynamic_cast<const google::protobuf::Int32Value*>(&msg)) {
         received_value = int_msg->value();
@@ -530,9 +532,12 @@ TEST(Middleware, SubscribeAny_ReceivesMessages) {
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   }
   
-  EXPECT_GE(received_count.load(), 1);
-  EXPECT_EQ(received_type, "google.protobuf.Int32Value");
-  EXPECT_GE(received_value, 100);  // Should have received 100 or 200
+  {
+    std::lock_guard<std::mutex> lock(mtx);
+    EXPECT_GE(received_count.load(), 1);
+    EXPECT_EQ(received_type, "google.protobuf.Int32Value");
+    EXPECT_GE(received_value, 100);  // Should have received 100 or 200
+  }
 }
 
 TEST(Middleware, SubscribeAny_MultipleTypes) {
