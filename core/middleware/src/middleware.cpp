@@ -92,13 +92,23 @@ void Middleware::shutdown() {
         return;  // Already shutdown
     }
     
-    if (dispatcher_.joinable()) {
-        dispatcher_.join();
+    // Acquire mutex to synchronize with ensure_dispatcher()
+    // This prevents the race where:
+    // 1. ensure_dispatcher() checks shutdown_ (false)
+    // 2. shutdown() sets shutdown_ = true, checks joinable() = false
+    // 3. ensure_dispatcher() starts thread
+    // 4. Thread runs against destroyed Middleware
+    std::thread dispatcher_to_join;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        dispatcher_to_join = std::move(dispatcher_);
+        subscriptions_.clear();
+        publishers_.clear();
     }
     
-    std::lock_guard<std::mutex> lock(mutex_);
-    subscriptions_.clear();
-    publishers_.clear();
+    if (dispatcher_to_join.joinable()) {
+        dispatcher_to_join.join();
+    }
 }
 
 void Middleware::publish(const std::string& topic, const google::protobuf::Message& message) {
@@ -150,8 +160,8 @@ void Middleware::publish_serialized(
         // Get or create cached publisher
         auto pub_it = publishers_.find(topic);
         if (pub_it == publishers_.end()) {
-            // Use SensorData QoS for better compatibility with realtime topics
-            auto new_pub = detail::create_publisher_impl(topic, Qos::SensorData, 1);
+            // Use KeepLast QoS with reasonable buffer to avoid message drops
+            auto new_pub = detail::create_publisher_impl(topic, Qos::KeepLast, 16);
             if (!new_pub) {
                 return;
             }
@@ -351,17 +361,22 @@ void Middleware::dispatcher_loop() {
 }
 
 void Middleware::ensure_dispatcher() {
-    // Don't start dispatcher if already shutdown
+    // Quick check without lock - if already running or shutdown, nothing to do
     if (shutdown_.load() || dispatcher_running_.load()) {
         return;
     }
     
-    bool expected = false;
-    if (dispatcher_running_.compare_exchange_strong(expected, true)) {
-        dispatcher_ = std::thread([this]() {
-            dispatcher_loop();
-        });
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    // Re-check under lock to prevent race with shutdown()
+    if (shutdown_.load() || dispatcher_running_.load()) {
+        return;
     }
+    
+    dispatcher_running_.store(true);
+    dispatcher_ = std::thread([this]() {
+        dispatcher_loop();
+    });
 }
 
 // --- Global functions ---
@@ -393,6 +408,9 @@ void spin(const std::shared_ptr<Node>& node) {
     spin(std::vector<std::shared_ptr<Node>>{node});
 }
 
+/// @note spin() only exits when the global shutdown() is called (sets g_shutdown_requested).
+///       Calling mw->shutdown() on a specific Middleware instance does NOT cause spin() to exit.
+///       This is intentional - spin() is designed for the global middleware lifecycle.
 void spin(const std::vector<std::shared_ptr<Node>>& nodes) {
     while (!g_shutdown_requested.load()) {
         for (const auto& node : nodes) {

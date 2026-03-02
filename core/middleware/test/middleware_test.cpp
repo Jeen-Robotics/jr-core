@@ -339,10 +339,11 @@ TEST(Middleware, SensorDataQos_GetsLatestOnly) {
   }
 
   // Wait for processing
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
   
-  // Should have received a recent value (not necessarily 99, but close)
-  EXPECT_GE(last.load(), 0);
+  // Should have received a recent value - SensorData QoS drops old messages,
+  // so we should see values from the later part of the sequence
+  EXPECT_GE(last.load(), 50) << "SensorData QoS should deliver recent values, got: " << last.load();
 }
 
 TEST(Middleware, GetTopicNamesAndTypes_ReturnsRegisteredTopics) {
@@ -463,6 +464,9 @@ TEST(Middleware, ShutdownCleansUp) {
   EXPECT_TRUE(sub.valid());
   
   mw->shutdown();
+  
+  // After shutdown, subscription should be invalid
+  EXPECT_FALSE(sub.valid());
   
   // After shutdown, publishing should not crash
   google::protobuf::Int32Value v;
