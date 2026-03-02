@@ -8,15 +8,14 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(BUILD_SANDBOX "Build sandbox" ON)
 option(BUILD_TESTS "Build tests" OFF)
-option(BUILD_RUST_MIDDLEWARE "Build Rust middleware" OFF)
 
 if(BUILD_TESTS)
     enable_testing()
     find_package(GTest REQUIRED)
 endif()
 
-# Corrosion for Rust integration
-if(BUILD_RUST_MIDDLEWARE)
+# Corrosion for Rust integration (required for middleware)
+if(NOT ANDROID)
     include(FetchContent)
     FetchContent_Declare(
         Corrosion

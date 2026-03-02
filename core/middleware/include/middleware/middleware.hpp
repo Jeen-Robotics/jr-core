@@ -1,145 +1,232 @@
 #pragma once
 
-#include <cstdint>
-#include <functional>
-#include <memory>
-#include <string>
-#include <type_traits>
-#include <utility>
-#include <vector>
+/// @file middleware.hpp
+/// @brief ROS-like middleware API backed by Rust implementation
+///
+/// Provides a familiar Node-based API similar to ROS, with automatic
+/// message dispatch via background threads.
+///
+/// @note The Rust backend uses a global singleton (OnceCell). All Middleware
+///       instances share the same underlying transport. This means topics
+///       are globally visible across all Middleware instances.
+
+#include <middleware/subscription.hpp>
+#include <middleware_rs/fwd.hpp>  // For Qos enum
 
 #include <google/protobuf/message.h>
 
-#include <middleware/subscription.hpp>
+#include <atomic>
+#include <condition_variable>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <type_traits>
+#include <unordered_map>
+#include <vector>
 
 namespace jr::mw {
 
 class Node;
 
-enum class BackendKind : int {
-  InProcess = 0,
-};
+namespace detail {
+class SubscriptionBase;
+} // namespace detail
 
+/// Topic introspection info
 struct TopicInfo {
-  std::string name;
-  std::string type_full_name; // empty if unknown yet
+    std::string name;
+    std::string type_full_name;
 };
 
+/// Core middleware class
+/// 
+/// Manages pub/sub communication with automatic callback dispatch.
+/// Uses Rust middleware backend for message routing.
+///
+/// @warning SINGLETON BACKEND: All Middleware instances share the same
+///          underlying Rust transport. Topics are globally visible across
+///          all instances. If you need topic isolation, use topic namespacing
+///          (e.g., "/node1/topic" vs "/node2/topic").
+///
+/// @note Linux uses eventfd/poll for efficient message dispatch.
+///       Non-Linux platforms use condition_variable with 10ms timeout.
 class Middleware : public std::enable_shared_from_this<Middleware> {
 public:
-  virtual ~Middleware() = default;
+    ~Middleware();
 
-  // Stop the middleware background processing and release resources
-  virtual void shutdown() = 0;
+    /// Stop the middleware and release resources
+    void shutdown();
 
-  // Publish a protobuf message
-  void publish(
-    const std::string& topic,
-    const google::protobuf::Message& message
-  );
-
-  // Publish an already-serialized protobuf payload with explicit type name
-  void publish_serialized(
-    const std::string& topic,
-    const std::string& type_full_name,
-    const std::string& payload
-  );
-
-  // Typed convenience publisher
-  template <typename ProtoT>
-  void publish(const std::string& topic, const ProtoT& message) {
-    static_assert(
-      std::is_base_of_v<google::protobuf::Message, ProtoT>,
-      "ProtoT must derive from google::protobuf::Message"
+    /// Publish a protobuf message
+    /// @param topic Topic name
+    /// @param message Protobuf message to publish
+    /// @param qos Quality of service for the internal publisher
+    /// @param capacity Queue capacity for the internal publisher
+    void publish(
+        const std::string& topic,
+        const google::protobuf::Message& message,
+        Qos qos = Qos::KeepLast,
+        std::size_t capacity = 16
     );
-    publish(topic, static_cast<const google::protobuf::Message&>(message));
-  }
 
-  // Subscribe with a concrete protobuf type
-  template <typename ProtoT>
-  Subscription subscribe(
-    const std::string& topic,
-    std::function<void(const ProtoT&)> callback
-  ) {
-    static_assert(
-      std::is_base_of_v<google::protobuf::Message, ProtoT>,
-      "ProtoT must derive from google::protobuf::Message"
+    /// Publish an already-serialized protobuf payload with explicit type name
+    /// @param topic Topic name
+    /// @param type_full_name Fully qualified protobuf type name
+    /// @param payload Serialized protobuf data
+    /// @param qos Quality of service for the internal publisher
+    /// @param capacity Queue capacity for the internal publisher
+    void publish_serialized(
+        const std::string& topic,
+        const std::string& type_full_name,
+        const std::string& payload,
+        Qos qos = Qos::KeepLast,
+        std::size_t capacity = 16
     );
-    const auto* desc = ProtoT::descriptor();
-    std::string type_full_name;
-    if (desc) {
-      auto sv = desc->full_name();
-      type_full_name.assign(sv.data(), sv.size());
+
+    /// Typed convenience publisher
+    template <typename ProtoT>
+    void publish(
+        const std::string& topic,
+        const ProtoT& message,
+        Qos qos = Qos::KeepLast,
+        std::size_t capacity = 16
+    ) {
+        static_assert(
+            std::is_base_of_v<google::protobuf::Message, ProtoT>,
+            "ProtoT must derive from google::protobuf::Message"
+        );
+        publish(topic, static_cast<const google::protobuf::Message&>(message), qos, capacity);
     }
-    return do_subscribe_typed(
-      topic,
-      type_full_name,
-      [cb = std::move(callback)](const google::protobuf::Message& any_msg) {
-        const auto* typed = dynamic_cast<const ProtoT*>(&any_msg);
-        if (typed)
-          cb(*typed);
-      }
+
+    /// Subscribe with a concrete protobuf type
+    template <typename ProtoT>
+    Subscription subscribe(
+        const std::string& topic,
+        std::function<void(const ProtoT&)> callback,
+        Qos qos = Qos::KeepLast,
+        std::size_t capacity = 16
+    ) {
+        static_assert(
+            std::is_base_of_v<google::protobuf::Message, ProtoT>,
+            "ProtoT must derive from google::protobuf::Message"
+        );
+        
+        const auto* desc = ProtoT::descriptor();
+        std::string type_full_name;
+        if (desc) {
+            auto sv = desc->full_name();
+            type_full_name.assign(sv.data(), sv.size());
+        }
+        
+        return do_subscribe_typed<ProtoT>(topic, type_full_name, std::move(callback), qos, capacity);
+    }
+
+    /// Subscribe to all messages on a topic regardless of type.
+    /// 
+    /// Uses protobuf reflection to deserialize any message type. The type must
+    /// be registered in the C++ topic_types_ registry before messages can be
+    /// deserialized. Type registration happens when:
+    /// - A typed publish() or publish_serialized() is called on the topic
+    /// - A typed subscribe<T>() is called on the topic
+    /// - Node::create_publisher<T>() is called for the topic
+    /// 
+    /// @warning Messages received before type registration are silently dropped.
+    ///          For reliable recording, ensure at least one typed publisher or
+    ///          subscriber exists on the topic before calling subscribe_any().
+    /// 
+    /// @param topic Topic name
+    /// @param callback Callback receiving type name and deserialized message
+    /// @param qos Quality of service
+    /// @param capacity Queue capacity
+    Subscription subscribe_any(
+        const std::string& topic,
+        std::function<void(const std::string&, const google::protobuf::Message&)> callback,
+        Qos qos = Qos::KeepLast,
+        std::size_t capacity = 16
     );
-  }
 
-  // Subscribe dynamically by type name (e.g. "jr.test.Int32")
-  Subscription subscribe(
-    const std::string& topic,
-    const std::string& type_full_name,
-    std::function<void(const google::protobuf::Message&)> callback
-  );
+    /// Get topic names and types (C++ registry only, not Rust backend)
+    std::vector<TopicInfo> get_topic_names_and_types() const;
 
-  // Subscribe to all messages on a topic regardless of type
-  Subscription subscribe_any(
-    const std::string& topic,
-    std::function<
-      void(const std::string& /*type_full_name*/, const google::protobuf::Message&)>
-      callback
-  );
+    /// Register a topic type for subscribe_any() support
+    /// Called by Node::create_publisher() to ensure type is available for BagWriter
+    void register_topic_type(const std::string& topic, const std::string& type_full_name);
 
-  // Introspection similar to ROS: get topic names and types
-  virtual std::vector<TopicInfo> get_topic_names_and_types() const = 0;
+    /// Factory method
+    static std::shared_ptr<Middleware> create();
 
-  static std::shared_ptr<Middleware> create(
-    BackendKind backend = BackendKind::InProcess
-  );
+private:
+    friend class Subscription;
+    friend class Node;
 
-protected:
-  friend class Subscription;
+    Middleware();
 
-  Subscription make_subscription(const std::uint64_t id) {
-    return Subscription{weak_from_this(), id};
-  }
+    template <typename ProtoT>
+    Subscription do_subscribe_typed(
+        const std::string& topic,
+        const std::string& type_full_name,
+        std::function<void(const ProtoT&)> callback,
+        Qos qos,
+        std::size_t capacity
+    );
 
-  // Typed subscribe implementation entry (type string + base Message callback)
-  virtual Subscription do_subscribe_typed(
-    const std::string& topic,
-    const std::string& type_full_name,
-    std::function<void(const google::protobuf::Message&)> callback
-  ) = 0;
+    Subscription make_subscription(std::uint64_t id, std::shared_ptr<detail::SubscriptionBase> impl);
+    void unregister_subscription(std::uint64_t id);
+    bool subscription_valid(std::uint64_t id) const;
+    
+    void dispatcher_loop();
+    void ensure_dispatcher();
 
-  // Dynamic subscribe-any entry
-  virtual Subscription do_subscribe_any(
-    const std::string& topic,
-    std::function<void(const std::string&, const google::protobuf::Message&)>
-      callback
-  ) = 0;
-
-  // Publish serialized payload
-  virtual void do_publish_serialized(
-    const std::string& topic,
-    const std::string& type_full_name,
-    std::string payload
-  ) = 0;
-
-  virtual void do_unsubscribe(std::uint64_t id) = 0;
+    // mutable to allow locking in const methods (subscription_valid, get_topic_names_and_types)
+    mutable std::mutex mutex_;
+    // Use shared_ptr to allow safe concurrent access during dispatch
+    std::unordered_map<std::uint64_t, std::shared_ptr<detail::SubscriptionBase>> subscriptions_;
+    std::unordered_map<std::string, std::string> topic_types_;  // topic -> type_full_name
+    struct PublisherEntry {
+        std::shared_ptr<detail::PublisherImpl> impl;
+        Qos qos;
+        std::size_t capacity;
+    };
+    std::unordered_map<std::string, PublisherEntry> publishers_;
+    std::uint64_t next_id_{1};
+    
+    std::thread dispatcher_;
+    std::atomic<bool> shutdown_{false};
+    std::atomic<bool> dispatcher_running_{false};
+    bool init_failed_{false};  // Set if Rust backend initialization fails
+    
+    // Condition variable for non-Linux platforms to avoid busy-waiting
+    std::condition_variable dispatch_cv_;
+    
+#ifdef __linux__
+    std::atomic<int> epoll_fd_{-1};  // Persistent epoll instance for O(1) event dispatch
+    std::unordered_map<int, std::uint64_t> fd_to_id_;  // Map eventfd -> subscription id
+#endif
 };
 
-std::shared_ptr<Middleware> get(BackendKind backend = BackendKind::InProcess);
+/// Get or create the global middleware instance
+/// @note Also initializes the middleware if not already done
+std::shared_ptr<Middleware> get();
 
-void init(BackendKind backend = BackendKind::InProcess);
-void spin(const std::shared_ptr<Node>& node);
-void spin(const std::vector<std::shared_ptr<Node>>& nodes);
+/// Shutdown the global middleware instance
 void shutdown();
 
+/// Spin processing messages for a single node
+/// @note spin() only exits when the global shutdown() is called.
+///       Calling mw->shutdown() on a specific Middleware instance does NOT
+///       cause spin() to exit. Use the global shutdown() for spin() loops.
+void spin(const std::shared_ptr<Node>& node);
+
+/// Spin processing messages for multiple nodes
+/// @note spin() only exits when the global shutdown() is called.
+///       Calling mw->shutdown() on a specific Middleware instance does NOT
+///       cause spin() to exit. Use the global shutdown() for spin() loops.
+void spin(const std::vector<std::shared_ptr<Node>>& nodes);
+
 } // namespace jr::mw
+
+// Include template implementation
+#include <middleware/detail/middleware_impl.hpp>
