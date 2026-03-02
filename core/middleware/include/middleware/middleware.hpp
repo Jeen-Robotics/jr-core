@@ -44,6 +44,14 @@ struct TopicInfo {
 /// 
 /// Manages pub/sub communication with automatic callback dispatch.
 /// Uses Rust middleware backend for message routing.
+///
+/// @warning SINGLETON BACKEND: All Middleware instances share the same
+///          underlying Rust transport. Topics are globally visible across
+///          all instances. If you need topic isolation, use topic namespacing
+///          (e.g., "/node1/topic" vs "/node2/topic").
+///
+/// @note Non-Linux platforms use a 1ms polling loop for message dispatch,
+///       which adds up to 1ms latency. Linux uses eventfd/poll for lower latency.
 class Middleware : public std::enable_shared_from_this<Middleware> {
 public:
     ~Middleware();
@@ -94,10 +102,13 @@ public:
         return do_subscribe_typed<ProtoT>(topic, type_full_name, std::move(callback), qos, capacity);
     }
 
-    // Dynamic subscription methods are not implemented in this version.
-    // Use the typed subscribe<ProtoT>() template instead.
-    // subscribe(topic, type_name, callback) = delete
-    // subscribe_any(topic, callback) = delete
+    /// Subscribe to all messages on a topic regardless of type
+    /// @warning Not implemented in Rust backend - always returns invalid subscription.
+    ///          BagWriter recording will not work. Use typed subscribe<ProtoT>() instead.
+    Subscription subscribe_any(
+        const std::string& topic,
+        std::function<void(const std::string&, const google::protobuf::Message&)> callback
+    );
 
     /// Get topic names and types (C++ registry only, not Rust backend)
     std::vector<TopicInfo> get_topic_names_and_types() const;

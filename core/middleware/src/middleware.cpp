@@ -74,7 +74,10 @@ bool Subscription::valid() const noexcept {
 
 Middleware::Middleware() {
     // Initialize Rust backend (idempotent - Rust uses OnceCell singleton)
-    jr::mw::init();
+    if (!jr::mw::init()) {
+        std::cerr << "[jr::mw] FATAL: Failed to initialize Rust middleware backend" << std::endl;
+        std::abort();
+    }
 }
 
 Middleware::~Middleware() {
@@ -98,13 +101,15 @@ void Middleware::shutdown() {
 }
 
 void Middleware::publish(const std::string& topic, const google::protobuf::Message& message) {
-    // Get type name
-    std::string type_full_name;
+    // Get type name - descriptor should never be null for properly generated protos
     const auto* desc = message.GetDescriptor();
-    if (desc) {
-        auto sv = desc->full_name();
-        type_full_name.assign(sv.data(), sv.size());
+    if (!desc) {
+        std::cerr << "[jr::mw] WARNING: Message has no descriptor for topic: " << topic << std::endl;
+        return;
     }
+    
+    auto sv = desc->full_name();
+    std::string type_full_name(sv.data(), sv.size());
 
     // Serialize and publish
     std::string data;
@@ -166,6 +171,19 @@ void Middleware::publish_serialized(
     }
 }
 
+Subscription Middleware::subscribe_any(
+    const std::string& topic,
+    std::function<void(const std::string&, const google::protobuf::Message&)> callback
+) {
+    // Not implemented - requires protobuf reflection/dynamic message factory
+    // Log warning once per topic
+    std::cerr << "[jr::mw] WARNING: subscribe_any() not implemented for Rust backend. "
+              << "Topic '" << topic << "' will not receive messages. "
+              << "BagWriter recording will not work." << std::endl;
+    (void)callback;
+    return Subscription{};
+}
+
 std::vector<TopicInfo> Middleware::get_topic_names_and_types() const {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<TopicInfo> result;
@@ -197,8 +215,14 @@ void Middleware::unregister_subscription(std::uint64_t id) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = subscriptions_.find(id);
     if (it != subscriptions_.end()) {
-        // Mark as cancelled before removing - stops callbacks even if
-        // dispatcher has a shared_ptr copy
+        // IMPORTANT: Order matters here for thread safety:
+        // 1. cancel() sets atomic cancelled_ flag
+        // 2. erase() removes from map
+        // 
+        // The dispatcher thread may already have a shared_ptr copy from
+        // before this lock was acquired. The cancel() ensures spin_once()
+        // will return false even if the dispatcher tries to invoke it.
+        // The shared_ptr keeps the object alive until dispatcher releases it.
         it->second->cancel();
         subscriptions_.erase(it);
     }
