@@ -124,7 +124,6 @@ public:
         return do_subscribe_typed<ProtoT>(topic, type_full_name, std::move(callback), qos, capacity);
     }
 
-    /// Subscribe to all messages on a topic regardless of type
     /// Subscribe to all messages on a topic regardless of type.
     /// 
     /// Uses protobuf reflection to deserialize any message type. The type must
@@ -187,6 +186,7 @@ private:
     std::unordered_map<std::uint64_t, std::shared_ptr<detail::SubscriptionBase>> subscriptions_;
     std::unordered_map<std::string, std::string> topic_types_;  // topic -> type_full_name
     std::unordered_map<std::string, std::shared_ptr<detail::PublisherImpl>> publishers_;
+    std::unordered_map<std::string, std::pair<Qos, std::size_t>> publisher_qos_;  // topic -> (qos, capacity)
     std::uint64_t next_id_{1};
     
     std::thread dispatcher_;
@@ -196,6 +196,11 @@ private:
     
     // Condition variable for non-Linux platforms to avoid busy-waiting
     std::condition_variable dispatch_cv_;
+    
+#ifdef __linux__
+    int epoll_fd_{-1};  // Persistent epoll instance for O(1) event dispatch
+    std::unordered_map<int, std::uint64_t> fd_to_id_;  // Map eventfd -> subscription id
+#endif
 };
 
 /// Get or create the global middleware instance

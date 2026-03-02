@@ -10,7 +10,8 @@
 #include <google/protobuf/message.h>
 
 #ifdef __linux__
-#include <poll.h>
+#include <sys/epoll.h>
+#include <unistd.h>
 #endif
 
 #include <chrono>
@@ -24,6 +25,10 @@ namespace {
 std::shared_ptr<Middleware> g_middleware;
 std::mutex g_mutex;
 std::atomic<bool> g_shutdown_requested{false};
+
+// Condition variable for spin() to avoid busy-waiting
+std::mutex g_spin_mutex;
+std::condition_variable g_spin_cv;
 
 } // namespace
 
@@ -75,12 +80,23 @@ bool Subscription::valid() const noexcept {
 
 Middleware::Middleware()
     : init_failed_(false)
+#ifdef __linux__
+    , epoll_fd_(-1)
+#endif
 {
     // Initialize Rust backend (idempotent - Rust uses OnceCell singleton)
     if (!jr::mw::init()) {
         std::cerr << "[jr::mw] ERROR: Failed to initialize Rust middleware backend" << std::endl;
         init_failed_ = true;
+        return;
     }
+    
+#ifdef __linux__
+    epoll_fd_ = ::epoll_create1(0);
+    if (epoll_fd_ < 0) {
+        std::cerr << "[jr::mw] WARNING: Failed to create epoll instance, falling back to poll" << std::endl;
+    }
+#endif
 }
 
 Middleware::~Middleware() {
@@ -106,6 +122,14 @@ void Middleware::shutdown() {
         dispatcher_to_join = std::move(dispatcher_);
         subscriptions_.clear();
         publishers_.clear();
+        publisher_qos_.clear();
+#ifdef __linux__
+        fd_to_id_.clear();
+        if (epoll_fd_ >= 0) {
+            ::close(epoll_fd_);
+            epoll_fd_ = -1;
+        }
+#endif
     }
     
     if (dispatcher_to_join.joinable()) {
@@ -183,8 +207,21 @@ void Middleware::publish_serialized(
                 new_pub.release(), 
                 [](detail::PublisherImpl* p) { detail::delete_publisher_impl(p); }
             );
+            // Store QoS info for mismatch detection
+            publisher_qos_[topic] = {qos, capacity};
             publishers_[topic] = pub_shared;
         } else {
+            // Warn if QoS parameters differ from cached publisher
+            auto qos_it = publisher_qos_.find(topic);
+            if (qos_it != publisher_qos_.end()) {
+                if (qos_it->second.first != qos || qos_it->second.second != capacity) {
+                    std::cerr << "[jr::mw] WARNING: QoS mismatch for cached publisher on topic " << topic
+                              << ": using cached (qos=" << static_cast<int>(qos_it->second.first) 
+                              << ", capacity=" << qos_it->second.second << ")"
+                              << ", ignoring requested (qos=" << static_cast<int>(qos) 
+                              << ", capacity=" << capacity << ")" << std::endl;
+                }
+            }
             pub_shared = pub_it->second;
         }
     }
@@ -269,6 +306,21 @@ Subscription Middleware::make_subscription(
 ) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        
+#ifdef __linux__
+        // Add eventfd to epoll for O(1) event dispatch
+        if (epoll_fd_ >= 0) {
+            int fd = impl->get_fd();
+            if (fd >= 0) {
+                struct epoll_event ev;
+                ev.events = EPOLLIN;
+                ev.data.u64 = id;
+                if (::epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, fd, &ev) == 0) {
+                    fd_to_id_[fd] = id;
+                }
+            }
+        }
+#endif
         subscriptions_[id] = std::move(impl);
     }
     
@@ -280,6 +332,16 @@ void Middleware::unregister_subscription(std::uint64_t id) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = subscriptions_.find(id);
     if (it != subscriptions_.end()) {
+#ifdef __linux__
+        // Remove eventfd from epoll
+        if (epoll_fd_ >= 0 && it->second) {
+            int fd = it->second->get_fd();
+            if (fd >= 0) {
+                ::epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
+                fd_to_id_.erase(fd);
+            }
+        }
+#endif
         // IMPORTANT: Order matters here for thread safety:
         // 1. cancel() sets atomic cancelled_ flag
         // 2. erase() removes from map
@@ -303,47 +365,45 @@ bool Middleware::subscription_valid(std::uint64_t id) const {
 void Middleware::dispatcher_loop() {
     while (!shutdown_.load()) {
 #ifdef __linux__
-        // Collect subscriptions with their shared_ptrs (keeps them alive during dispatch)
-        std::vector<std::pair<int, std::shared_ptr<detail::SubscriptionBase>>> ready_subs;
+        if (epoll_fd_ < 0) {
+            // Fallback: no epoll available, just sleep
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
+        }
+        
+        // Wait for events with epoll (O(1) per event, not O(N) per iteration)
+        constexpr int MAX_EVENTS = 64;
+        struct epoll_event events[MAX_EVENTS];
+        int nfds = ::epoll_wait(epoll_fd_, events, MAX_EVENTS, 10);  // 10ms timeout
+        
+        if (nfds <= 0) {
+            continue;
+        }
+        
+        // Collect subscriptions to process (acquire lock once)
+        std::vector<std::shared_ptr<detail::SubscriptionBase>> subs_to_process;
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            for (const auto& [id, sub] : subscriptions_) {
-                if (sub) {
-                    int fd = sub->get_fd();
-                    if (fd >= 0) {
-                        ready_subs.emplace_back(fd, sub);  // shared_ptr copy
-                    }
+            for (int i = 0; i < nfds; ++i) {
+                std::uint64_t id = events[i].data.u64;
+                auto it = subscriptions_.find(id);
+                if (it != subscriptions_.end() && it->second) {
+                    subs_to_process.push_back(it->second);  // shared_ptr copy
                 }
             }
         }
-
-        if (ready_subs.empty()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            continue;
-        }
-
-        // Poll for events (outside lock, but shared_ptrs keep objects alive)
-        std::vector<struct pollfd> pfds(ready_subs.size());
-        for (std::size_t i = 0; i < ready_subs.size(); ++i) {
-            pfds[i].fd = ready_subs[i].first;
-            pfds[i].events = POLLIN;
-            pfds[i].revents = 0;
-        }
-
-        int ret = ::poll(pfds.data(), static_cast<nfds_t>(pfds.size()), 10);  // 10ms timeout
-        if (ret <= 0) {
-            continue;
-        }
-
-        // Process ready subscriptions - shared_ptr keeps objects alive
-        for (std::size_t i = 0; i < pfds.size(); ++i) {
-            if (pfds[i].revents & POLLIN) {
-                auto& sub = ready_subs[i].second;
-                // Drain all messages - callback invoked without lock held
-                while (sub->spin_once()) {
-                    // Continue until no more messages
-                }
+        
+        // Process subscriptions outside the lock
+        bool processed_any = false;
+        for (auto& sub : subs_to_process) {
+            while (sub->spin_once()) {
+                processed_any = true;
             }
+        }
+        
+        // Notify spin() that callbacks were processed
+        if (processed_any) {
+            g_spin_cv.notify_all();
         }
 #else
         // Non-Linux: use condition variable with timeout
@@ -370,10 +430,16 @@ void Middleware::dispatcher_loop() {
         }
         
         // Process outside the lock - shared_ptrs keep objects alive
+        bool processed_any = false;
         for (auto& sub : subs_to_process) {
             while (sub->spin_once()) {
-                // Drain messages
+                processed_any = true;
             }
+        }
+        
+        // Notify spin() that callbacks were processed
+        if (processed_any) {
+            g_spin_cv.notify_all();
         }
 #endif
     }
@@ -415,6 +481,9 @@ std::shared_ptr<Middleware> get() {
 void shutdown() {
     g_shutdown_requested.store(true);
     
+    // Wake up any spin() loops waiting on condition variable
+    g_spin_cv.notify_all();
+    
     std::shared_ptr<Middleware> mw;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
@@ -441,8 +510,11 @@ void spin(const std::vector<std::shared_ptr<Node>>& nodes) {
             }
         }
         
-        // Brief sleep to avoid busy-waiting
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        // Wait for dispatcher activity or timeout (avoids busy-waiting)
+        std::unique_lock<std::mutex> lock(g_spin_mutex);
+        g_spin_cv.wait_for(lock, std::chrono::milliseconds(10), []() {
+            return g_shutdown_requested.load();
+        });
     }
 }
 

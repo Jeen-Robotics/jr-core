@@ -58,12 +58,18 @@ public:
     }
 
     /// Create a typed subscription with callback
+    /// @param topic Topic name
+    /// @param callback Callback function
+    /// @param qos Quality of service
+    /// @param capacity Queue capacity
     template <typename ProtoT>
     Subscription create_subscription(
         const std::string& topic,
-        std::function<void(const ProtoT&)> callback
+        std::function<void(const ProtoT&)> callback,
+        Qos qos = Qos::KeepLast,
+        std::size_t capacity = 16
     ) {
-        return mw_->subscribe<ProtoT>(topic, std::move(callback));
+        return mw_->subscribe<ProtoT>(topic, std::move(callback), qos, capacity);
     }
 
     /// Check if node is valid
