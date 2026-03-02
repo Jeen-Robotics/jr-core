@@ -3,6 +3,7 @@
 /// @file fwd.hpp
 /// @brief Forward declarations for middleware_rs
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 

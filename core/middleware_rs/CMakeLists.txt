@@ -19,8 +19,16 @@ corrosion_import_crate(MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml)
 set(CORROSION_TARGET_DIR "${CMAKE_BINARY_DIR}/cargo/build")
 # CXX outputs headers to target/cxxbridge/<crate>/src/... during build
 set(CXX_BRIDGE_DIR_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/target/cxxbridge")
-# For Corrosion builds, use the target triple Corrosion resolved (set by FindRust.cmake)
-set(CXX_BRIDGE_DIR_CORROSION "${CORROSION_TARGET_DIR}/${Rust_CARGO_TARGET}/cxxbridge")
+# Cargo profile matches CMake build type
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(_CARGO_PROFILE "debug")
+else()
+    set(_CARGO_PROFILE "release")
+endif()
+# For native host builds (Corrosion omits target triple from path)
+set(CXX_BRIDGE_DIR_NATIVE "${CORROSION_TARGET_DIR}/${_CARGO_PROFILE}/cxxbridge")
+# For cross-compilation builds (Corrosion passes --target, adds triple subdir)
+set(CXX_BRIDGE_DIR_CORROSION "${CORROSION_TARGET_DIR}/${Rust_CARGO_TARGET}/${_CARGO_PROFILE}/cxxbridge")
 
 # Find protobuf for the wrapper
 find_package(Protobuf REQUIRED)
@@ -37,7 +45,9 @@ target_include_directories(middleware_rs_cpp
         # CXX-generated headers (need to build Rust first)
         # Source dir for local cargo build
         ${CXX_BRIDGE_DIR_SOURCE}
-        # Corrosion build dir (target triple resolved at configure time)
+        # Corrosion native build (no --target, cargo omits triple from path)
+        ${CXX_BRIDGE_DIR_NATIVE}
+        # Corrosion cross-compilation build (explicit --target, triple in path)
         ${CXX_BRIDGE_DIR_CORROSION}
 )
 
