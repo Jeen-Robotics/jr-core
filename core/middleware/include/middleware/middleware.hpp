@@ -61,23 +61,44 @@ public:
     void shutdown();
 
     /// Publish a protobuf message
-    void publish(const std::string& topic, const google::protobuf::Message& message);
+    /// @param topic Topic name
+    /// @param message Protobuf message to publish
+    /// @param qos Quality of service for the internal publisher
+    /// @param capacity Queue capacity for the internal publisher
+    void publish(
+        const std::string& topic,
+        const google::protobuf::Message& message,
+        Qos qos = Qos::KeepLast,
+        std::size_t capacity = 16
+    );
 
     /// Publish an already-serialized protobuf payload with explicit type name
+    /// @param topic Topic name
+    /// @param type_full_name Fully qualified protobuf type name
+    /// @param payload Serialized protobuf data
+    /// @param qos Quality of service for the internal publisher
+    /// @param capacity Queue capacity for the internal publisher
     void publish_serialized(
         const std::string& topic,
         const std::string& type_full_name,
-        const std::string& payload
+        const std::string& payload,
+        Qos qos = Qos::KeepLast,
+        std::size_t capacity = 16
     );
 
     /// Typed convenience publisher
     template <typename ProtoT>
-    void publish(const std::string& topic, const ProtoT& message) {
+    void publish(
+        const std::string& topic,
+        const ProtoT& message,
+        Qos qos = Qos::KeepLast,
+        std::size_t capacity = 16
+    ) {
         static_assert(
             std::is_base_of_v<google::protobuf::Message, ProtoT>,
             "ProtoT must derive from google::protobuf::Message"
         );
-        publish(topic, static_cast<const google::protobuf::Message&>(message));
+        publish(topic, static_cast<const google::protobuf::Message&>(message), qos, capacity);
     }
 
     /// Subscribe with a concrete protobuf type
@@ -111,9 +132,15 @@ public:
     /// 
     /// @note Messages published via Publisher<T> (from Node::create_publisher)
     ///       also register their type, enabling subscribe_any() to work.
+    /// @param topic Topic name
+    /// @param callback Callback receiving type name and deserialized message
+    /// @param qos Quality of service
+    /// @param capacity Queue capacity
     Subscription subscribe_any(
         const std::string& topic,
-        std::function<void(const std::string&, const google::protobuf::Message&)> callback
+        std::function<void(const std::string&, const google::protobuf::Message&)> callback,
+        Qos qos = Qos::KeepLast,
+        std::size_t capacity = 16
     );
 
     /// Get topic names and types (C++ registry only, not Rust backend)

@@ -111,7 +111,12 @@ void Middleware::shutdown() {
     }
 }
 
-void Middleware::publish(const std::string& topic, const google::protobuf::Message& message) {
+void Middleware::publish(
+    const std::string& topic,
+    const google::protobuf::Message& message,
+    Qos qos,
+    std::size_t capacity
+) {
     // Get type name - descriptor should never be null for properly generated protos
     const auto* desc = message.GetDescriptor();
     if (!desc) {
@@ -129,13 +134,15 @@ void Middleware::publish(const std::string& topic, const google::protobuf::Messa
         return;
     }
 
-    publish_serialized(topic, type_full_name, data);
+    publish_serialized(topic, type_full_name, data, qos, capacity);
 }
 
 void Middleware::publish_serialized(
     const std::string& topic,
     const std::string& type_full_name,
-    const std::string& payload
+    const std::string& payload,
+    Qos qos,
+    std::size_t capacity
 ) {
     // Check shutdown first
     if (shutdown_.load()) {
@@ -157,11 +164,10 @@ void Middleware::publish_serialized(
             return;
         }
         
-        // Get or create cached publisher
+        // Get or create cached publisher with specified QoS
         auto pub_it = publishers_.find(topic);
         if (pub_it == publishers_.end()) {
-            // Use KeepLast QoS with reasonable buffer to avoid message drops
-            auto new_pub = detail::create_publisher_impl(topic, Qos::KeepLast, 16);
+            auto new_pub = detail::create_publisher_impl(topic, qos, capacity);
             if (!new_pub) {
                 return;
             }
@@ -189,10 +195,12 @@ void Middleware::publish_serialized(
 
 Subscription Middleware::subscribe_any(
     const std::string& topic,
-    std::function<void(const std::string&, const google::protobuf::Message&)> callback
+    std::function<void(const std::string&, const google::protobuf::Message&)> callback,
+    Qos qos,
+    std::size_t capacity
 ) {
     // Create raw bytes subscriber from Rust backend
-    auto sub_impl = detail::create_subscriber_impl(topic, Qos::KeepLast, 16);
+    auto sub_impl = detail::create_subscriber_impl(topic, qos, capacity);
     if (!sub_impl || !detail::subscriber_valid_impl(sub_impl.get())) {
         std::cerr << "[jr::mw] WARNING: Failed to create subscriber for topic: " << topic << std::endl;
         return Subscription{};
