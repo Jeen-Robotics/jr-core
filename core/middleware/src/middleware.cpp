@@ -92,10 +92,11 @@ Middleware::Middleware()
     }
     
 #ifdef __linux__
-    epoll_fd_ = ::epoll_create1(0);
-    if (epoll_fd_ < 0) {
+    int fd = ::epoll_create1(0);
+    if (fd < 0) {
         std::cerr << "[jr::mw] WARNING: Failed to create epoll instance, falling back to poll" << std::endl;
     }
+    epoll_fd_.store(fd);
 #endif
 }
 
@@ -122,12 +123,12 @@ void Middleware::shutdown() {
         dispatcher_to_join = std::move(dispatcher_);
         subscriptions_.clear();
         publishers_.clear();
-        publisher_qos_.clear();
 #ifdef __linux__
         fd_to_id_.clear();
-        if (epoll_fd_ >= 0) {
-            ::close(epoll_fd_);
-            epoll_fd_ = -1;
+        int fd = epoll_fd_.load();
+        if (fd >= 0) {
+            ::close(fd);
+            epoll_fd_.store(-1);
         }
 #endif
     }
@@ -207,22 +208,18 @@ void Middleware::publish_serialized(
                 new_pub.release(), 
                 [](detail::PublisherImpl* p) { detail::delete_publisher_impl(p); }
             );
-            // Store QoS info for mismatch detection
-            publisher_qos_[topic] = {qos, capacity};
-            publishers_[topic] = pub_shared;
+            publishers_[topic] = {pub_shared, qos, capacity};
         } else {
             // Warn if QoS parameters differ from cached publisher
-            auto qos_it = publisher_qos_.find(topic);
-            if (qos_it != publisher_qos_.end()) {
-                if (qos_it->second.first != qos || qos_it->second.second != capacity) {
-                    std::cerr << "[jr::mw] WARNING: QoS mismatch for cached publisher on topic " << topic
-                              << ": using cached (qos=" << static_cast<int>(qos_it->second.first) 
-                              << ", capacity=" << qos_it->second.second << ")"
-                              << ", ignoring requested (qos=" << static_cast<int>(qos) 
-                              << ", capacity=" << capacity << ")" << std::endl;
-                }
+            auto& entry = pub_it->second;
+            if (entry.qos != qos || entry.capacity != capacity) {
+                std::cerr << "[jr::mw] WARNING: QoS mismatch for cached publisher on topic " << topic
+                          << ": using cached (qos=" << static_cast<int>(entry.qos) 
+                          << ", capacity=" << entry.capacity << ")"
+                          << ", ignoring requested (qos=" << static_cast<int>(qos) 
+                          << ", capacity=" << capacity << ")" << std::endl;
             }
-            pub_shared = pub_it->second;
+            pub_shared = entry.impl;
         }
     }
 
@@ -309,13 +306,14 @@ Subscription Middleware::make_subscription(
         
 #ifdef __linux__
         // Add eventfd to epoll for O(1) event dispatch
-        if (epoll_fd_ >= 0) {
+        int epoll_fd = epoll_fd_.load();
+        if (epoll_fd >= 0) {
             int fd = impl->get_fd();
             if (fd >= 0) {
                 struct epoll_event ev;
                 ev.events = EPOLLIN;
                 ev.data.u64 = id;
-                if (::epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, fd, &ev) == 0) {
+                if (::epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev) == 0) {
                     fd_to_id_[fd] = id;
                 }
             }
@@ -334,10 +332,11 @@ void Middleware::unregister_subscription(std::uint64_t id) {
     if (it != subscriptions_.end()) {
 #ifdef __linux__
         // Remove eventfd from epoll
-        if (epoll_fd_ >= 0 && it->second) {
+        int epoll_fd = epoll_fd_.load();
+        if (epoll_fd >= 0 && it->second) {
             int fd = it->second->get_fd();
             if (fd >= 0) {
-                ::epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
+                ::epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
                 fd_to_id_.erase(fd);
             }
         }
@@ -365,7 +364,8 @@ bool Middleware::subscription_valid(std::uint64_t id) const {
 void Middleware::dispatcher_loop() {
     while (!shutdown_.load()) {
 #ifdef __linux__
-        if (epoll_fd_ < 0) {
+        int epoll_fd = epoll_fd_.load();
+        if (epoll_fd < 0) {
             // Fallback: no epoll available, just sleep
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
@@ -374,7 +374,7 @@ void Middleware::dispatcher_loop() {
         // Wait for events with epoll (O(1) per event, not O(N) per iteration)
         constexpr int MAX_EVENTS = 64;
         struct epoll_event events[MAX_EVENTS];
-        int nfds = ::epoll_wait(epoll_fd_, events, MAX_EVENTS, 10);  // 10ms timeout
+        int nfds = ::epoll_wait(epoll_fd, events, MAX_EVENTS, 10);  // 10ms timeout
         
         if (nfds <= 0) {
             continue;

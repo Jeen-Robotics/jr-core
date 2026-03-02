@@ -185,8 +185,12 @@ private:
     // Use shared_ptr to allow safe concurrent access during dispatch
     std::unordered_map<std::uint64_t, std::shared_ptr<detail::SubscriptionBase>> subscriptions_;
     std::unordered_map<std::string, std::string> topic_types_;  // topic -> type_full_name
-    std::unordered_map<std::string, std::shared_ptr<detail::PublisherImpl>> publishers_;
-    std::unordered_map<std::string, std::pair<Qos, std::size_t>> publisher_qos_;  // topic -> (qos, capacity)
+    struct PublisherEntry {
+        std::shared_ptr<detail::PublisherImpl> impl;
+        Qos qos;
+        std::size_t capacity;
+    };
+    std::unordered_map<std::string, PublisherEntry> publishers_;
     std::uint64_t next_id_{1};
     
     std::thread dispatcher_;
@@ -198,7 +202,7 @@ private:
     std::condition_variable dispatch_cv_;
     
 #ifdef __linux__
-    int epoll_fd_{-1};  // Persistent epoll instance for O(1) event dispatch
+    std::atomic<int> epoll_fd_{-1};  // Persistent epoll instance for O(1) event dispatch
     std::unordered_map<int, std::uint64_t> fd_to_id_;  // Map eventfd -> subscription id
 #endif
 };

@@ -169,10 +169,10 @@ TEST(Node, PublisherSubscription_BasicDelivery) {
   init();
   auto node = Node("test");
   auto pub = node.create_publisher<google::protobuf::Int32Value>("/n/int");
-  std::optional<int> received;
+  std::atomic<int> received{-1};
   auto sub = node.create_subscription<google::protobuf::Int32Value>(
     "/n/int",
-    [&](const google::protobuf::Int32Value& v) { received = v.value(); }
+    [&](const google::protobuf::Int32Value& v) { received.store(v.value()); }
   );
 
   google::protobuf::Int32Value v;
@@ -181,11 +181,11 @@ TEST(Node, PublisherSubscription_BasicDelivery) {
   v.set_value(42);
   pub.publish(v);
 
-  for (int i = 0; i < 50 && !received.has_value(); ++i) {
+  for (int i = 0; i < 50 && received.load() < 0; ++i) {
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   }
-  ASSERT_TRUE(received.has_value());
-  EXPECT_EQ(*received, 42);
+  ASSERT_GE(received.load(), 0);
+  EXPECT_EQ(received.load(), 42);
   shutdown();
 }
 
@@ -296,10 +296,10 @@ TEST(Runtime, DerivedNodeClasses_PubSub) {
 
 TEST(Middleware, PublishSerialized_Works) {
   auto mw = Middleware::create();
-  std::optional<int> received;
+  std::atomic<int> received{-1};
   auto sub = mw->subscribe<google::protobuf::Int32Value>(
     "/serialized",
-    [&](const google::protobuf::Int32Value& v) { received = v.value(); }
+    [&](const google::protobuf::Int32Value& v) { received.store(v.value()); }
   );
 
   // Manually serialize and publish
@@ -310,11 +310,11 @@ TEST(Middleware, PublishSerialized_Works) {
   
   mw->publish_serialized("/serialized", "google.protobuf.Int32Value", payload);
 
-  for (int i = 0; i < 50 && !received.has_value(); ++i) {
+  for (int i = 0; i < 50 && received.load() < 0; ++i) {
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   }
-  ASSERT_TRUE(received.has_value());
-  EXPECT_EQ(*received, 999);
+  ASSERT_GE(received.load(), 0);
+  EXPECT_EQ(received.load(), 999);
 }
 
 TEST(Middleware, SensorDataQos_GetsLatestOnly) {
