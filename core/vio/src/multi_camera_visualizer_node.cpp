@@ -40,7 +40,13 @@ void MultiCameraVisualizerNode::reset_trajectory_image() {
   }
 
   // Mark origin
-  cv::circle(trajectory_img_, cv::Point(150, 150), 4, cv::Scalar(255, 255, 255), -1);
+  cv::circle(
+    trajectory_img_,
+    cv::Point(150, 150),
+    4,
+    cv::Scalar(255, 255, 255),
+    -1
+  );
 }
 
 void MultiCameraVisualizerNode::spin_once() {
@@ -110,13 +116,21 @@ void MultiCameraVisualizerNode::spin_once() {
   if (vis_state_->has_depth) {
     if (!vis_state_->sparse_depth_map.empty()) {
       cv::Mat resized;
-      cv::resize(vis_state_->sparse_depth_map, resized, cv::Size(depth_w, depth_h));
+      cv::resize(
+        vis_state_->sparse_depth_map,
+        resized,
+        cv::Size(depth_w, depth_h)
+      );
       resized.copyTo(sparse_panel);
     }
 
     if (!vis_state_->dense_depth_map.empty()) {
       cv::Mat resized;
-      cv::resize(vis_state_->dense_depth_map, resized, cv::Size(depth_w, depth_h));
+      cv::resize(
+        vis_state_->dense_depth_map,
+        resized,
+        cv::Size(depth_w, depth_h)
+      );
       resized.copyTo(dense_panel);
     }
 
@@ -141,10 +155,32 @@ void MultiCameraVisualizerNode::spin_once() {
   for (int i = 0; i < 60; ++i) {
     double t = i / 59.0;
     cv::Scalar color(255 * (1 - t), 100, 255 * t);
-    cv::line(sparse_panel, cv::Point(200 + i, 8), cv::Point(200 + i, 18), color, 1);
+    cv::line(
+      sparse_panel,
+      cv::Point(200 + i, 8),
+      cv::Point(200 + i, 18),
+      color,
+      1
+    );
   }
-  cv::putText(sparse_panel, "Near", cv::Point(165, 16), cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(0, 0, 255), 1);
-  cv::putText(sparse_panel, "Far", cv::Point(262, 16), cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(255, 0, 0), 1);
+  cv::putText(
+    sparse_panel,
+    "Near",
+    cv::Point(165, 16),
+    cv::FONT_HERSHEY_SIMPLEX,
+    0.3,
+    cv::Scalar(0, 0, 255),
+    1
+  );
+  cv::putText(
+    sparse_panel,
+    "Far",
+    cv::Point(262, 16),
+    cv::FONT_HERSHEY_SIMPLEX,
+    0.3,
+    cv::Scalar(255, 0, 0),
+    1
+  );
 
   cv::putText(
     dense_panel,
@@ -161,10 +197,32 @@ void MultiCameraVisualizerNode::spin_once() {
     uchar r = static_cast<uchar>(t * 255);
     uchar g = static_cast<uchar>(50 + t * 100);
     uchar b = static_cast<uchar>((1.0 - t) * 255);
-    cv::line(dense_panel, cv::Point(200 + i, 8), cv::Point(200 + i, 18), cv::Scalar(b, g, r), 1);
+    cv::line(
+      dense_panel,
+      cv::Point(200 + i, 8),
+      cv::Point(200 + i, 18),
+      cv::Scalar(b, g, r),
+      1
+    );
   }
-  cv::putText(dense_panel, "Near", cv::Point(165, 16), cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(0, 0, 255), 1);
-  cv::putText(dense_panel, "Far", cv::Point(262, 16), cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(255, 0, 0), 1);
+  cv::putText(
+    dense_panel,
+    "Near",
+    cv::Point(165, 16),
+    cv::FONT_HERSHEY_SIMPLEX,
+    0.3,
+    cv::Scalar(0, 0, 255),
+    1
+  );
+  cv::putText(
+    dense_panel,
+    "Far",
+    cv::Point(262, 16),
+    cv::FONT_HERSHEY_SIMPLEX,
+    0.3,
+    cv::Scalar(255, 0, 0),
+    1
+  );
 
   cv::putText(
     flow_panel,
@@ -186,21 +244,48 @@ void MultiCameraVisualizerNode::spin_once() {
   );
 
   cv::Mat depth_row;
-  cv::hconcat(std::vector<cv::Mat>{sparse_panel, dense_panel, flow_panel}, depth_row);
+  cv::hconcat(
+    std::vector<cv::Mat>{sparse_panel, dense_panel, flow_panel},
+    depth_row
+  );
 
   // Build pointcloud panel (top-down view)
   cv::Mat pc_panel(pc_size, pc_size, CV_8UC3, cv::Scalar(20, 20, 20));
 
   // Draw grid
   for (int i = 0; i < pc_size; i += 30) {
-    cv::line(pc_panel, cv::Point(i, 0), cv::Point(i, pc_size), cv::Scalar(40, 40, 40), 1);
-    cv::line(pc_panel, cv::Point(0, i), cv::Point(pc_size, i), cv::Scalar(40, 40, 40), 1);
+    cv::line(
+      pc_panel,
+      cv::Point(i, 0),
+      cv::Point(i, pc_size),
+      cv::Scalar(40, 40, 40),
+      1
+    );
+    cv::line(
+      pc_panel,
+      cv::Point(0, i),
+      cv::Point(pc_size, i),
+      cv::Scalar(40, 40, 40),
+      1
+    );
   }
 
   // Draw axes
   int cx = pc_size / 2, cy = pc_size / 2;
-  cv::line(pc_panel, cv::Point(cx, cy), cv::Point(cx + 30, cy), cv::Scalar(0, 0, 255), 2); // X red
-  cv::line(pc_panel, cv::Point(cx, cy), cv::Point(cx, cy - 30), cv::Scalar(255, 0, 0), 2); // Z blue
+  cv::line(
+    pc_panel,
+    cv::Point(cx, cy),
+    cv::Point(cx + 30, cy),
+    cv::Scalar(0, 0, 255),
+    2
+  ); // X red
+  cv::line(
+    pc_panel,
+    cv::Point(cx, cy),
+    cv::Point(cx, cy - 30),
+    cv::Scalar(255, 0, 0),
+    2
+  ); // Z blue
 
   // Draw points
   double scale = 15.0;
@@ -303,10 +388,12 @@ void MultiCameraVisualizerNode::spin_once() {
   );
   cv::putText(
     traj_panel,
-    cv::format("Pos: (%.1f, %.1f, %.1f)",
+    cv::format(
+      "Pos: (%.1f, %.1f, %.1f)",
       vis_state_->current_position.x,
       vis_state_->current_position.y,
-      vis_state_->current_position.z),
+      vis_state_->current_position.z
+    ),
     cv::Point(5, 35),
     cv::FONT_HERSHEY_SIMPLEX,
     0.35,
@@ -344,7 +431,11 @@ void MultiCameraVisualizerNode::spin_once() {
     );
     cv::putText(
       padding,
-      cv::format("Active Cameras: %d/%d", vis_state_->active_cameras, MAX_CAMERAS),
+      cv::format(
+        "Active Cameras: %d/%d",
+        vis_state_->active_cameras,
+        MAX_CAMERAS
+      ),
       cv::Point(10, 60),
       cv::FONT_HERSHEY_SIMPLEX,
       0.5,
@@ -362,9 +453,11 @@ void MultiCameraVisualizerNode::spin_once() {
     );
     cv::putText(
       padding,
-      cv::format("Flow Range: %.1f - %.1f px",
+      cv::format(
+        "Flow Range: %.1f - %.1f px",
         vis_state_->min_flow,
-        vis_state_->max_flow),
+        vis_state_->max_flow
+      ),
       cv::Point(10, 110),
       cv::FONT_HERSHEY_SIMPLEX,
       0.5,
@@ -414,15 +507,38 @@ void MultiCameraVisualizerNode::spin_once() {
     for (int i = 0; i < 100; ++i) {
       double t = i / 99.0;
       cv::Scalar color(255 * (1 - t), 100, 255 * t);
-      cv::line(padding, cv::Point(20 + i, 260), cv::Point(20 + i, 280), color, 1);
+      cv::line(
+        padding,
+        cv::Point(20 + i, 260),
+        cv::Point(20 + i, 280),
+        color,
+        1
+      );
     }
-    cv::putText(padding, "Near", cv::Point(20, bottom_left_height - 10), cv::FONT_HERSHEY_SIMPLEX, 0.35, cv::Scalar(0, 0, 255), 1);
-    cv::putText(padding, "Far", cv::Point(100, bottom_left_height - 10), cv::FONT_HERSHEY_SIMPLEX, 0.35, cv::Scalar(255, 0, 0), 1);
+    cv::putText(
+      padding,
+      "Near",
+      cv::Point(20, bottom_left_height - 10),
+      cv::FONT_HERSHEY_SIMPLEX,
+      0.35,
+      cv::Scalar(0, 0, 255),
+      1
+    );
+    cv::putText(
+      padding,
+      "Far",
+      cv::Point(100, bottom_left_height - 10),
+      cv::FONT_HERSHEY_SIMPLEX,
+      0.35,
+      cv::Scalar(255, 0, 0),
+      1
+    );
 
     cv::hconcat(bottom_left, padding, bottom_left);
   }
 
-  // Stack everything vertically: cameras | depth | (pointcloud + trajectory + info)
+  // Stack everything vertically: cameras | depth | (pointcloud + trajectory +
+  // info)
   cv::Mat display;
   cv::vconcat(cam_row, depth_row, display);
   cv::vconcat(display, bottom_left, display);

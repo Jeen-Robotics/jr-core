@@ -1,7 +1,7 @@
 #pragma once
 
 /// @file middleware.hpp
-/// @brief Rust-backed middleware C++ wrapper
+/// @brief Rust middleware C++ bindings
 ///
 /// High-level API that hides the FFI layer. Users interact with
 /// typed publishers and subscribers using protobuf messages.
@@ -12,7 +12,7 @@
 /// #include <my_msgs/sensor_data.pb.h>
 ///
 /// int main() {
-///     jr::mw::init();
+///     jr::mw::rs::init();
 ///
 ///     // Create typed publisher
 ///     auto pub = jr::mw::advertise<my_msgs::SensorData>("sensor/data");
@@ -43,9 +43,19 @@
 
 namespace jr::mw {
 
-/// Initialize the Rust middleware (idempotent)
+namespace rs {
+
+/// Initialize the Rust middleware bindings (idempotent)
 /// @return true on success
 bool init();
+
+/// Check if a topic exists (Rust backend).
+bool topic_exists(const std::string& topic);
+
+/// Get subscriber count for a topic (Rust backend).
+std::size_t subscriber_count(const std::string& topic);
+
+} // namespace rs
 
 /// Create a typed publisher
 /// @tparam ProtoT Protobuf message type
@@ -96,11 +106,5 @@ Subscriber<ProtoT> subscribe(
   auto impl = detail::create_subscriber_impl(topic, qos, capacity);
   return Subscriber<ProtoT>(topic, std::move(impl));
 }
-
-/// Check if a topic exists
-bool topic_exists(const std::string& topic);
-
-/// Get subscriber count for a topic
-std::size_t subscriber_count(const std::string& topic);
 
 } // namespace jr::mw

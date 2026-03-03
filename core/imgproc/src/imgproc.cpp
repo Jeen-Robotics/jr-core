@@ -30,7 +30,7 @@ bool yuv2rgba(const jr_planar_image_t* yuv, jr_image_t* rgba) {
 
   const int32_t total_pixels = yuv->width * yuv->height;
   const int32_t total_bytes = total_pixels * NUM_RGBA_CHANNELS;
-  
+
   // Pre-allocate memory
   auto* rgba_data = new uint8_t[total_bytes];
   if (!rgba_data) {
@@ -46,18 +46,20 @@ bool yuv2rgba(const jr_planar_image_t* yuv, jr_image_t* rgba) {
   for (int32_t i = 0; i < yuv->height; i++) {
     for (int32_t j = 0; j < yuv->width; j += BLOCK_SIZE) {
       const int32_t block_width = std::min(BLOCK_SIZE, yuv->width - j);
-      
+
       for (int32_t k = 0; k < block_width; k++) {
         const int32_t x = j + k;
-        const int32_t yIndex = i * y_plane.row_stride + x * y_plane.pixel_stride;
-        const int32_t uvIndex = (i >> 1) * u_plane.row_stride + (x >> 1) * u_plane.pixel_stride;
-        
+        const int32_t yIndex =
+          i * y_plane.row_stride + x * y_plane.pixel_stride;
+        const int32_t uvIndex =
+          (i >> 1) * u_plane.row_stride + (x >> 1) * u_plane.pixel_stride;
+
         const int32_t Y = y_plane.data[yIndex];
         const int32_t U = u_plane.data[uvIndex] - HALF_BYTE;
         const int32_t V = v_plane.data[uvIndex] - HALF_BYTE;
 
         const int32_t rgbaIndex = (i * yuv->width + x) * NUM_RGBA_CHANNELS;
-        
+
         // Pre-calculate common terms using fixed-point arithmetic
         const int32_t v_term = (V * R_V_COEF) >> 16;
         const int32_t u_term = (U * B_U_COEF) >> 16;

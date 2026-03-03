@@ -70,7 +70,8 @@ void MultiCameraRerunNode::log_camera_frames() {
     }
 
     // Log image - borrow the data with proper size calculation
-    size_t num_bytes = static_cast<size_t>(rgb.cols) * static_cast<size_t>(rgb.rows) * 3;
+    size_t num_bytes =
+      static_cast<size_t>(rgb.cols) * static_cast<size_t>(rgb.rows) * 3;
     rec_.log(
       cam_path + "/image",
       rerun::Image::from_rgb24(
@@ -80,13 +81,11 @@ void MultiCameraRerunNode::log_camera_frames() {
     );
 
     // Log feature info as annotation
-    std::string info = "Tracked: " + std::to_string(vis_state_->tracked_features[i]) +
-                       " | Detected: " + std::to_string(vis_state_->detected_features[i]) +
-                       " | FPS: " + std::to_string(static_cast<int>(vis_state_->fps[i]));
-    rec_.log(
-      cam_path + "/info",
-      rerun::TextLog(info)
-    );
+    std::string info =
+      "Tracked: " + std::to_string(vis_state_->tracked_features[i]) +
+      " | Detected: " + std::to_string(vis_state_->detected_features[i]) +
+      " | FPS: " + std::to_string(static_cast<int>(vis_state_->fps[i]));
+    rec_.log(cam_path + "/info", rerun::TextLog(info));
   }
 }
 
@@ -99,7 +98,8 @@ void MultiCameraRerunNode::log_depth_maps() {
   if (!vis_state_->sparse_depth_map.empty()) {
     cv::Mat rgb;
     cv::cvtColor(vis_state_->sparse_depth_map, rgb, cv::COLOR_BGR2RGB);
-    size_t num_bytes = static_cast<size_t>(rgb.cols) * static_cast<size_t>(rgb.rows) * 3;
+    size_t num_bytes =
+      static_cast<size_t>(rgb.cols) * static_cast<size_t>(rgb.rows) * 3;
 
     rec_.log(
       "depth/sparse",
@@ -114,7 +114,8 @@ void MultiCameraRerunNode::log_depth_maps() {
   if (!vis_state_->dense_depth_map.empty()) {
     cv::Mat rgb;
     cv::cvtColor(vis_state_->dense_depth_map, rgb, cv::COLOR_BGR2RGB);
-    size_t num_bytes = static_cast<size_t>(rgb.cols) * static_cast<size_t>(rgb.rows) * 3;
+    size_t num_bytes =
+      static_cast<size_t>(rgb.cols) * static_cast<size_t>(rgb.rows) * 3;
 
     rec_.log(
       "depth/dense",
@@ -129,7 +130,8 @@ void MultiCameraRerunNode::log_depth_maps() {
   if (!vis_state_->flow_hsv.empty()) {
     cv::Mat rgb;
     cv::cvtColor(vis_state_->flow_hsv, rgb, cv::COLOR_BGR2RGB);
-    size_t num_bytes = static_cast<size_t>(rgb.cols) * static_cast<size_t>(rgb.rows) * 3;
+    size_t num_bytes =
+      static_cast<size_t>(rgb.cols) * static_cast<size_t>(rgb.rows) * 3;
 
     rec_.log(
       "depth/flow",
@@ -144,8 +146,8 @@ void MultiCameraRerunNode::log_depth_maps() {
   rec_.log(
     "depth/stats",
     rerun::TextLog(
-      "Flow range: " + std::to_string(vis_state_->min_flow) +
-      " - " + std::to_string(vis_state_->max_flow) + " px"
+      "Flow range: " + std::to_string(vis_state_->min_flow) + " - " +
+      std::to_string(vis_state_->max_flow) + " px"
     )
   );
 }
@@ -167,14 +169,13 @@ void MultiCameraRerunNode::log_pointcloud() {
       static_cast<float>(p.position.y),
       static_cast<float>(p.position.z)
     ));
-    colors.push_back(rerun::Color(p.color[2], p.color[1], p.color[0])); // BGR to RGB
+    colors.push_back(rerun::Color(p.color[2], p.color[1], p.color[0])
+    ); // BGR to RGB
   }
 
   rec_.log(
     "world/pointcloud",
-    rerun::Points3D(positions)
-      .with_colors(colors)
-      .with_radii({0.08f})
+    rerun::Points3D(positions).with_colors(colors).with_radii({0.08f})
   );
 
   // Log pointcloud count
@@ -191,18 +192,23 @@ void MultiCameraRerunNode::log_trajectory() {
   // Log current position as a point
   rec_.log(
     "world/camera",
-    rerun::Points3D({{
-      static_cast<float>(pos.x),
-      static_cast<float>(pos.y),
-      static_cast<float>(pos.z)
-    }})
+    rerun::Points3D({{static_cast<float>(pos.x),
+                      static_cast<float>(pos.y),
+                      static_cast<float>(pos.z)}})
       .with_colors({rerun::Color(0, 255, 255)}) // Cyan
       .with_radii({0.2f})
   );
 
   // Log position text
   char pos_str[64];
-  snprintf(pos_str, sizeof(pos_str), "Pos: (%.2f, %.2f, %.2f)", pos.x, pos.y, pos.z);
+  snprintf(
+    pos_str,
+    sizeof(pos_str),
+    "Pos: (%.2f, %.2f, %.2f)",
+    pos.x,
+    pos.y,
+    pos.z
+  );
   rec_.log("world/camera/position", rerun::TextLog(pos_str));
 
   // Log trajectory as a line strip
@@ -238,9 +244,7 @@ void MultiCameraRerunNode::log_trajectory() {
     // Also log trajectory points for better visibility
     rec_.log(
       "world/trajectory_points",
-      rerun::Points3D(line_points)
-        .with_colors(line_colors)
-        .with_radii({0.1f})
+      rerun::Points3D(line_points).with_colors(line_colors).with_radii({0.1f})
     );
   }
 

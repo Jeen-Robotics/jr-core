@@ -9,6 +9,14 @@ cmake . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake
 cmake --build build
 ```
 
+Middleware backend selection:
+
+- Default backend is Rust.
+- Configure default at build time: `-DJR_MIDDLEWARE_DEFAULT_BACKEND=cpp` or `rust`.
+- Override at runtime: `JR_MIDDLEWARE_BACKEND=cpp` (or `rust`).
+- Programmatic override before `jr::mw::init()`:
+  `jr::mw::set_backend(jr::mw::Backend::Cpp);`
+
 ## Build (Android)
 
 Conan profile (save as ~/.conan2/profiles/android):

@@ -1,6 +1,7 @@
 find_package(protobuf CONFIG REQUIRED)
 
 add_library(jr_middleware
+    src/backend.cpp
     src/middleware.cpp
 )
 
@@ -16,6 +17,12 @@ target_link_libraries(jr_middleware
         protobuf::libprotobuf
         middleware_rs_cpp
 )
+
+if(JR_MIDDLEWARE_DEFAULT_BACKEND STREQUAL "cpp")
+    target_compile_definitions(jr_middleware PRIVATE JR_MIDDLEWARE_DEFAULT_BACKEND_CPP=1)
+else()
+    target_compile_definitions(jr_middleware PRIVATE JR_MIDDLEWARE_DEFAULT_BACKEND_CPP=0)
+endif()
 
 # Install library
 install(TARGETS jr_middleware 

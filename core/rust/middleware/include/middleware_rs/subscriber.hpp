@@ -143,8 +143,7 @@ public:
     return ret > 0 && (pfd.revents & POLLIN);
 #else
     // On non-Linux, fall back to sleep
-    std::this_thread::sleep_for(
-      std::min(timeout, std::chrono::milliseconds(10))
+    std::this_thread::sleep_for(std::min(timeout, std::chrono::milliseconds(10))
     );
     return true; // Caller should try_recv anyway
 #endif

@@ -81,9 +81,9 @@ struct MultiCameraVisState {
   int active_cameras = 0;
 
   // Depth map from optical flow (inverse depth proxy)
-  cv::Mat sparse_depth_map;  // Sparse depth from tracked features
-  cv::Mat dense_depth_map;   // Dense depth from Farneback optical flow
-  cv::Mat flow_hsv;          // Flow visualization (HSV: hue=direction, value=magnitude)
+  cv::Mat sparse_depth_map; // Sparse depth from tracked features
+  cv::Mat dense_depth_map;  // Dense depth from Farneback optical flow
+  cv::Mat flow_hsv; // Flow visualization (HSV: hue=direction, value=magnitude)
   bool has_depth = false;
   double min_flow = 0.0;
   double max_flow = 10.0;

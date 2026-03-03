@@ -1,8 +1,5 @@
 /// @file wrapper.cpp
-/// @brief C++ wrapper implementation bridging to CXX-generated FFI
-///
-/// This file includes the CXX-generated headers and implements the detail
-/// functions that the header-only templates call into.
+/// @brief Minimal Rust FFI bindings for middleware_rs
 
 #include <middleware_rs/middleware.hpp>
 
@@ -11,13 +8,8 @@
 
 namespace jr::mw {
 
-// ============================================================================
-// Implementation Types (pimpl)
-// ============================================================================
-
 namespace detail {
 
-/// Publisher implementation wrapping CXX Box
 struct PublisherImpl {
   ::rust::Box<::jr::mw::RustPublisher> inner;
 
@@ -26,7 +18,6 @@ struct PublisherImpl {
   }
 };
 
-/// Subscriber implementation wrapping CXX Box
 struct SubscriberImpl {
   ::rust::Box<::jr::mw::RustSubscriber> inner;
 
@@ -35,7 +26,6 @@ struct SubscriberImpl {
   }
 };
 
-// Custom deleters for pimpl (used by unique_ptr)
 void delete_publisher_impl(const PublisherImpl* p) {
   delete p;
 }
@@ -43,32 +33,6 @@ void delete_publisher_impl(const PublisherImpl* p) {
 void delete_subscriber_impl(const SubscriberImpl* p) {
   delete p;
 }
-
-} // namespace detail
-
-// ============================================================================
-// Middleware Lifecycle
-// ============================================================================
-
-bool init() {
-  return ::jr::mw::middleware_init();
-}
-
-bool topic_exists(const std::string& topic) {
-  const ::rust::Str rust_topic(topic.data(), topic.size());
-  return ::jr::mw::topic_exists(rust_topic);
-}
-
-std::size_t subscriber_count(const std::string& topic) {
-  const ::rust::Str rust_topic(topic.data(), topic.size());
-  return ::jr::mw::subscriber_count(rust_topic);
-}
-
-// ============================================================================
-// Publisher Detail Functions
-// ============================================================================
-
-namespace detail {
 
 PublisherPtr create_publisher_impl(
   const std::string& topic,
@@ -85,24 +49,21 @@ bool publish_impl(
   const void* data,
   const std::size_t len
 ) {
-  if (!impl)
+  if (!impl) {
     return false;
+  }
 
   const ::rust::Slice slice(static_cast<const std::uint8_t*>(data), len);
-
   const auto result = ::jr::mw::publish_bytes(*impl->inner, slice);
   return result.success;
 }
 
 bool publisher_valid_impl(const PublisherImpl* impl) {
-  if (!impl)
+  if (!impl) {
     return false;
+  }
   return ::jr::mw::publisher_is_valid(*impl->inner);
 }
-
-// ============================================================================
-// Subscriber Detail Functions
-// ============================================================================
 
 SubscriberPtr create_subscriber_impl(
   const std::string& topic,
@@ -115,14 +76,16 @@ SubscriberPtr create_subscriber_impl(
 }
 
 bool subscriber_valid_impl(const SubscriberImpl* impl) {
-  if (!impl)
+  if (!impl) {
     return false;
+  }
   return ::jr::mw::subscriber_is_valid(*impl->inner);
 }
 
 int subscriber_fd_impl(const SubscriberImpl* impl) {
-  if (!impl)
+  if (!impl) {
     return -1;
+  }
   return ::jr::mw::subscriber_get_fd(*impl->inner);
 }
 
@@ -135,20 +98,35 @@ RecvResult subscriber_recv_impl(SubscriberImpl* impl) {
   }
 
   auto ffi_result = ::jr::mw::subscriber_try_recv(*impl->inner);
-
   result.has_message = ffi_result.has_message;
   result.closed = ffi_result.closed;
 
   if (ffi_result.has_message) {
-    // Copy from rust::Vec to std::vector (unavoidable at FFI boundary)
-    // Pre-allocate to avoid reallocations
     result.data.reserve(ffi_result.data.size());
     result.data.assign(ffi_result.data.begin(), ffi_result.data.end());
   }
 
-  return result; // NRVO or move semantics apply
+  return result;
 }
 
 } // namespace detail
+
+namespace rs {
+
+bool init() {
+  return ::jr::mw::middleware_init();
+}
+
+bool topic_exists(const std::string& topic) {
+  const ::rust::Str rust_topic(topic.data(), topic.size());
+  return ::jr::mw::topic_exists(rust_topic);
+}
+
+std::size_t subscriber_count(const std::string& topic) {
+  const ::rust::Str rust_topic(topic.data(), topic.size());
+  return ::jr::mw::subscriber_count(rust_topic);
+}
+
+} // namespace rs
 
 } // namespace jr::mw

@@ -25,8 +25,7 @@ public:
   }
   void stopStreaming() {
   }
-  void setFrameCallback(
-    std::function<void(const jr_planar_image_t&)> callback
+  void setFrameCallback(std::function<void(const jr_planar_image_t&)> callback
   ) {
   }
   void setSessionReadyCallback(std::function<void()> callback) {
