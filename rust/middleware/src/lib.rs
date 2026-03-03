@@ -4,12 +4,11 @@
 //! - Zero-copy message passing via Arc<T>
 //! - Async API built on tokio
 //! - Type-safe topics with runtime type checking
-//! - C++ bindings via CXX (Phase 2)
 //!
 //! # Quick Start
 //!
 //! ```ignore
-//! use middleware_rs::Middleware;
+//! use middleware::Middleware;
 //! use std::sync::Arc;
 //!
 //! #[tokio::main]
@@ -43,8 +42,6 @@
 
 pub mod middleware;
 pub mod topic;
-
-/// FFI module for C++ interop via CXX
 pub mod ffi;
 
 pub use middleware::{Middleware, MiddlewareError, Subscription};

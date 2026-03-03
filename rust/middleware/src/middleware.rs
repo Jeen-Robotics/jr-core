@@ -60,7 +60,7 @@ impl<T: Send + Sync + 'static> Subscription<T> {
                         continue;
                     } else {
                         eprintln!(
-                            "[middleware_rs] WARN: Subscription to '{}' lagged by {} messages",
+                            "[middleware] WARN: Subscription to '{}' lagged by {} messages",
                             self.topic, n
                         );
                         return Err(MiddlewareError::Lagged {
@@ -92,7 +92,7 @@ impl<T: Send + Sync + 'static> Subscription<T> {
                         continue;
                     } else {
                         eprintln!(
-                            "[middleware_rs] WARN: Subscription to '{}' lagged by {} messages",
+                            "[middleware] WARN: Subscription to '{}' lagged by {} messages",
                             self.topic, n
                         );
                         return Some(Err(MiddlewareError::Lagged {
@@ -143,7 +143,7 @@ impl<T: Send + Sync + 'static> Subscription<T> {
 /// # Example
 ///
 /// ```ignore
-/// use middleware_rs::{Middleware, Qos};
+/// use middleware::{Middleware, Qos};
 /// use std::sync::Arc;
 ///
 /// let mw = Middleware::new();
@@ -281,7 +281,7 @@ impl Middleware {
     /// Subscribe to a topic with raw bytes type (for FFI)
     ///
     /// Returns the underlying broadcast receiver for polling-based FFI use.
-    pub(crate) fn subscribe_raw(
+    pub fn subscribe_raw(
         &self,
         topic: &str,
         qos: Qos,
@@ -292,7 +292,7 @@ impl Middleware {
     /// Get or create a sender for raw bytes type (for FFI)
     ///
     /// Returns the underlying broadcast sender for cached publishing.
-    pub(crate) fn get_or_create_sender_raw(
+    pub fn get_or_create_sender_raw(
         &self,
         topic: &str,
         qos: Qos,

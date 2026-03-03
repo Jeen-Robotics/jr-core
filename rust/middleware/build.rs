@@ -1,4 +1,4 @@
-//! Build script for middleware_rs
+//! Build script for middleware
 //!
 //! Generates:
 //! - C++ headers and sources from CXX bridge definitions
@@ -10,5 +10,5 @@ fn main() {
     // Compile CXX bridge
     cxx_build::bridge("src/ffi/bridge.rs")
         .std("c++17")
-        .compile("middleware_rs_cxx");
+        .compile("middleware_cxx");
 }

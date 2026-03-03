@@ -4,7 +4,7 @@
 build/
 CMakeUserPresets.json
 # Rust build artifacts
-core/middleware_rs/target/
-core/middleware_rs/Cargo.lock
+rust/target/
+rust/Cargo.lock
 target/
 build-ci/

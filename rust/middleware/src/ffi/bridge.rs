@@ -19,8 +19,7 @@ use once_cell::sync::OnceCell;
 use tokio::runtime::Runtime;
 use tokio::sync::{broadcast, mpsc};
 
-use crate::topic::Qos;
-use crate::Middleware;
+use crate::{Middleware, Qos};
 
 /// Global middleware instance
 static MIDDLEWARE: OnceCell<Arc<MiddlewareHandle>> = OnceCell::new();

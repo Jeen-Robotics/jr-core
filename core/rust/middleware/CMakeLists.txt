@@ -1,22 +1,27 @@
-# Rust middleware with C++ wrapper
+# Rust middleware bindings with C++ wrapper
 #
 # Builds:
-#   1. Rust static library via Corrosion
+#   1. Rust static library via Corrosion (workspace crate: middleware)
 #   2. CXX bridge target (generated FFI glue + include dirs)
 #   3. C++ wrapper library: middleware_rs_cpp
 #
 # Usage:
 #   target_link_libraries(your_target PRIVATE middleware_rs_cpp)
 
-# Import Rust crate
-corrosion_import_crate(MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml)
+set(JR_MIDDLEWARE_MANIFEST "${PROJECT_SOURCE_DIR}/rust/middleware/Cargo.toml")
+
+if(NOT TARGET middleware)
+    corrosion_import_crate(MANIFEST_PATH ${JR_MIDDLEWARE_MANIFEST})
+endif()
 
 # CXX bridge target: corrosion_add_cxxbridge handles include path discovery
-# across all platforms/configurations
-corrosion_add_cxxbridge(middleware_rs_cxxbridge
-    CRATE middleware_rs
-    FILES ffi/bridge.rs
-)
+# across all platforms/configurations.
+if(NOT TARGET jr_rust_middleware_cxxbridge)
+    corrosion_add_cxxbridge(jr_rust_middleware_cxxbridge
+        CRATE middleware
+        FILES ffi/bridge.rs
+    )
+endif()
 
 # Find protobuf for the wrapper
 find_package(Protobuf REQUIRED)
@@ -36,8 +41,8 @@ target_link_libraries(middleware_rs_cpp
     PUBLIC
         protobuf::libprotobuf
     PRIVATE
-        middleware_rs_cxxbridge  # CXX bridge: generated glue + include dirs for bridge.rs.h
-        middleware_rs            # Rust static lib from Corrosion
+        jr_rust_middleware_cxxbridge  # CXX bridge: generated glue + include dirs for bridge.rs.h
+        middleware                     # Rust static lib from Corrosion
 )
 
 # C++17 required for std::optional

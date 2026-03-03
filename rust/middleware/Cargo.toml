@@ -1,32 +1,21 @@
 [package]
-name = "middleware_rs"
+name = "middleware"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
-description = "Rust pub/sub middleware with zero-copy inter-thread communication"
+description = "Unit middleware package for jr-core"
 
 [lib]
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
-# Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time"] }
-
-# Concurrent collections
 dashmap = "6"
-
-# FFI for C++ interop
 cxx = "1.0"
-
-# Global middleware instance
 once_cell = "1.19"
 
-# eventfd for efficient C++ notification (Linux)
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
-
-# Logging (will be used later)
-# tracing = "0.1"
 
 [build-dependencies]
 cxx-build = "1.0"

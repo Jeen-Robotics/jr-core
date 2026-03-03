@@ -1,5 +1,7 @@
 # Rust Middleware Migration Plan
 
+> Update (2026-03-03): Rust sources were extracted from `core/middleware_rs` to the top-level workspace at `rust/`. Current state: single autonomous crate `rust/middleware` (`middleware`) with C++ bindings under `core/rust/middleware`.
+
 ## Цель
 
 Перенести pub/sub middleware на Rust с сохранением C++ биндингов для обратной совместимости.

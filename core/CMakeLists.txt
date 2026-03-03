@@ -1,9 +1,9 @@
 add_subdirectory(math)
 add_subdirectory(imgproc)
 
-# Rust middleware and dependent modules (not available on Android)
+# Rust-backed bindings and dependent modules (not available on Android)
 if(NOT ANDROID)
-    add_subdirectory(middleware_rs)
+    add_subdirectory(rust)
     add_subdirectory(middleware)
     add_subdirectory(bag)
     add_subdirectory(nodes)
