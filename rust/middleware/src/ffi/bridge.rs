@@ -439,142 +439,72 @@ fn subscriber_count(topic: &str) -> usize {
         .unwrap_or(0)
 }
 
-#[cfg(test)]
-mod tests {
+#[cfg(feature = "test-hooks")]
+pub mod test_hooks {
     use super::*;
-    use std::time::Duration;
 
-    #[test]
-    fn test_middleware_init() {
-        assert!(middleware_init());
-        assert!(middleware_init());
+    pub type TestPublisher = RustPublisher;
+    pub type TestSubscriber = RustSubscriber;
+
+    pub fn middleware_init_for_tests() -> bool {
+        middleware_init()
     }
 
-    #[test]
-    fn test_publish_subscribe_eventfd() {
-        middleware_init();
-
-        let mut sub = create_subscriber("eventfd_test", QosKind::KeepLast, 16);
-        assert!(subscriber_is_valid(&sub));
-
-        let pub_ = create_publisher("eventfd_test", QosKind::KeepLast, 16);
-        assert!(publisher_is_valid(&pub_));
-
-        // Check eventfd is available (on Linux)
-        #[cfg(target_os = "linux")]
-        assert!(subscriber_get_fd(&sub) >= 0);
-
-        // Nothing to receive yet
-        let result = subscriber_try_recv(&mut sub);
-        assert!(!result.has_message);
-
-        // Publish a message
-        let publish_result = publish_bytes(&pub_, b"hello eventfd");
-        assert!(publish_result.success);
-
-        // Give background task time to forward
-        std::thread::sleep(Duration::from_millis(50));
-
-        // Now we should receive it
-        let result = subscriber_try_recv(&mut sub);
-        assert!(result.has_message);
-        assert_eq!(result.data, b"hello eventfd");
+    pub fn create_publisher_for_tests(
+        topic: &str,
+        qos: QosKind,
+        capacity: usize,
+    ) -> Box<TestPublisher> {
+        create_publisher(topic, qos, capacity)
     }
 
-    #[test]
-    fn test_sensor_data_qos() {
-        middleware_init();
-
-        let mut sub = create_subscriber("sensor_eventfd", QosKind::SensorData, 1);
-        assert!(subscriber_is_valid(&sub));
-
-        let pub_ = create_publisher("sensor_eventfd", QosKind::SensorData, 1);
-
-        // Publish multiple messages
-        for i in 0..10u8 {
-            publish_bytes(&pub_, &[i]);
-        }
-
-        // Wait for processing
-        std::thread::sleep(Duration::from_millis(100));
-
-        // Should get messages (may not be all due to SensorData dropping)
-        let result = subscriber_try_recv(&mut sub);
-        assert!(result.has_message);
+    pub fn publisher_is_valid_for_tests(publisher: &TestPublisher) -> bool {
+        publisher_is_valid(publisher)
     }
 
-    #[test]
-    fn test_invalid_subscriber() {
-        middleware_init();
-
-        // Create type conflict
-        let mw = &get_middleware().middleware;
-        let _ = mw.subscribe_with_qos::<String>("type_conflict_eventfd", Qos::default());
-
-        // Should fail
-        let mut sub = create_subscriber("type_conflict_eventfd", QosKind::KeepLast, 16);
-        assert!(!subscriber_is_valid(&sub));
-        assert_eq!(subscriber_get_fd(&sub), -1);
-
-        let result = subscriber_try_recv(&mut sub);
-        assert!(!result.has_message);
-        assert!(result.closed);
+    pub fn publish_bytes_for_tests(publisher: &TestPublisher, data: &[u8]) -> PublishResult {
+        publish_bytes(publisher, data)
     }
 
-    #[test]
-    fn test_invalid_publisher() {
-        middleware_init();
-
-        // Create type conflict
-        let mw = &get_middleware().middleware;
-        let _ = mw.subscribe_with_qos::<String>("pub_conflict_eventfd", Qos::default());
-
-        let pub_ = create_publisher("pub_conflict_eventfd", QosKind::KeepLast, 16);
-        assert!(!publisher_is_valid(&pub_));
-
-        let result = publish_bytes(&pub_, b"test");
-        assert!(!result.success);
+    pub fn create_subscriber_for_tests(
+        topic: &str,
+        qos: QosKind,
+        capacity: usize,
+    ) -> Box<TestSubscriber> {
+        create_subscriber(topic, qos, capacity)
     }
 
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn test_epoll_integration() {
-        
-        middleware_init();
+    pub fn subscriber_is_valid_for_tests(subscriber: &TestSubscriber) -> bool {
+        subscriber_is_valid(subscriber)
+    }
 
-        let mut sub = create_subscriber("epoll_test", QosKind::KeepLast, 16);
-        let pub_ = create_publisher("epoll_test", QosKind::KeepLast, 16);
-        
-        let fd = subscriber_get_fd(&sub);
-        assert!(fd >= 0);
+    pub fn subscriber_get_fd_for_tests(subscriber: &TestSubscriber) -> i32 {
+        subscriber_get_fd(subscriber)
+    }
 
-        // Create epoll instance
-        let epfd = unsafe { libc::epoll_create1(0) };
-        assert!(epfd >= 0);
+    pub fn subscriber_try_recv_for_tests(subscriber: &mut TestSubscriber) -> RecvResult {
+        subscriber_try_recv(subscriber)
+    }
 
-        // Add subscriber fd to epoll
-        let mut ev = libc::epoll_event {
-            events: libc::EPOLLIN as u32,
-            u64: fd as u64,
-        };
-        let ret = unsafe { libc::epoll_ctl(epfd, libc::EPOLL_CTL_ADD, fd, &mut ev) };
-        assert_eq!(ret, 0);
+    pub fn subscriber_topic_for_tests(subscriber: &TestSubscriber) -> String {
+        subscriber_topic(subscriber)
+    }
 
-        // Publish a message
-        publish_bytes(&pub_, b"epoll test message");
+    pub fn topic_exists_for_tests(topic: &str) -> bool {
+        topic_exists(topic)
+    }
 
-        // Wait for event (with timeout)
-        let mut events = [libc::epoll_event { events: 0, u64: 0 }; 1];
-        let n = unsafe { libc::epoll_wait(epfd, events.as_mut_ptr(), 1, 1000) };
-        
-        // Should have received an event
-        assert!(n > 0, "epoll_wait should return > 0");
-        
-        // Now receive the message
-        let result = subscriber_try_recv(&mut sub);
-        assert!(result.has_message);
-        assert_eq!(result.data, b"epoll test message");
+    pub fn list_topics_for_tests() -> Vec<String> {
+        list_topics()
+    }
 
-        unsafe { libc::close(epfd) };
+    pub fn subscriber_count_for_tests(topic: &str) -> usize {
+        subscriber_count(topic)
+    }
+
+    pub fn force_string_topic_for_tests(topic: &str) {
+        let _ = get_middleware()
+            .middleware
+            .subscribe_with_qos::<String>(topic, Qos::default());
     }
 }

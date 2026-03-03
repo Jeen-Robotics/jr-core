@@ -8,6 +8,10 @@ description = "Unit middleware package for jr-core"
 [lib]
 crate-type = ["staticlib", "rlib"]
 
+[features]
+default = []
+test-hooks = []
+
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time"] }
 dashmap = "6"

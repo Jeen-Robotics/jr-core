@@ -13,3 +13,8 @@
 mod bridge;
 
 pub use bridge::ffi::*;
+
+#[cfg(feature = "test-hooks")]
+pub mod test_hooks {
+    pub use super::bridge::test_hooks::*;
+}
