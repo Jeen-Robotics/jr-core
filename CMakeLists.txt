@@ -31,9 +31,15 @@ if(BUILD_SANDBOX AND NOT ANDROID)
     find_package(Arrow REQUIRED)
     
     include(FetchContent)
+    # Build only ReRun SDK as shared to avoid pulling Rust runtime symbols
+    # directly into final executables.
+    set(_JR_PREV_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
+    set(BUILD_SHARED_LIBS ON)
     FetchContent_Declare(rerun_sdk URL
         https://github.com/rerun-io/rerun/releases/latest/download/rerun_cpp_sdk.zip)
     FetchContent_MakeAvailable(rerun_sdk)
+    set(BUILD_SHARED_LIBS ${_JR_PREV_BUILD_SHARED_LIBS})
+    unset(_JR_PREV_BUILD_SHARED_LIBS)
 endif()
 
 add_subdirectory(api)
